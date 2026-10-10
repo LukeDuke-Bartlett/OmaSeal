@@ -111,6 +111,9 @@ omaseal selftest        # set/get/delete round-trip against the live keyring
 omaseal mcp status      # which agents are detected and already wired
 omaseal agent mode <open|ask|lock> [min] [--ungated]  # set agent/MCP trust mode
 omaseal agent unlock                      # presence-gated unlock for ask mode
+omaseal agent unlock --passphrase-stdin   # native backend: passphrase piped on
+                                          # stdin; verified cryptographically —
+                                          # no dialog needed (panels, launchers)
 omaseal agent lock                        # revoke agent session
 omaseal agent status                      # show agent policy and session
 omaseal agent keepalive on                # session renews on activity, lapses
@@ -230,8 +233,12 @@ and `omaseal://` reference grammar every consumer should follow.
   for unlock-only is `omaseal agent mode ask --ungated` — itself
   presence-gated, and never honored by policy-writing surfaces. (`open`
   mode skips `agent unlock` but `reveal` still gates.) The calling
-  process's stdin is never consulted, so an MCP-connected agent cannot
-  confirm its own unlock.
+  process's stdin is never consulted for *confirmation*, so an
+  MCP-connected agent cannot click its own unlock dialog. On the native
+  backend `agent unlock --passphrase-stdin` instead takes the store
+  passphrase on stdin and verifies it cryptographically — knowledge of the
+  passphrase is itself a stronger presence proof than a dialog click, so
+  no separate confirmation runs and a wrong guess writes no session.
 - The same presence gate protects every action that loosens the security
   posture: `agent mode` changes to a weaker mode (including `--ungated`),
   `manifest init --force` overwrites, `manifest apply` expansions, and

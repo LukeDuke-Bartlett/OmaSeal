@@ -429,3 +429,30 @@ func TestNativePassphrasePromptHeadless(t *testing.T) {
 		t.Fatal("GUI prompt ran in a headless session")
 	}
 }
+
+// Implicit unlock-on-read never prompts non-TTY callers — even in a graphical
+// session. This is the regression guard for the panel's background
+// `omaseal list` spawning a surprise passphrase dialog during unlock.
+func TestEnsureIdentityNeverGUIPrompts(t *testing.T) {
+	s, dir := nativeTestStore(t)
+	initNative(t, s, "gui-pass")
+
+	oldTTY, oldGUI := stdinIsTTY, nativePromptGUI
+	stdinIsTTY = func() bool { return false }
+	called := false
+	nativePromptGUI = func(context.Context, string) (string, error) {
+		called = true
+		return "gui-pass", nil
+	}
+	t.Cleanup(func() { stdinIsTTY, nativePromptGUI = oldTTY, oldGUI })
+	t.Setenv("WAYLAND_DISPLAY", "wayland-test")
+
+	// Fresh process: no in-memory identity, no live session in rt.
+	fresh := newNativeStoreAt(dir, t.TempDir())
+	if _, err := fresh.Get("svc", "acct"); err == nil || codeFromError(err) != "locked" {
+		t.Fatalf("Get = %v, want locked", err)
+	}
+	if called {
+		t.Fatal("ensureIdentity spawned a GUI prompt for a non-TTY caller")
+	}
+}
