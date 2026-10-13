@@ -85,7 +85,7 @@ func TestUnlockAgentDeniedWritesNoSession(t *testing.T) {
 	askPolicy(t, false)
 	stubPresence(t, false, nil, errNoGUIPrompter)
 
-	if err := UnlockAgent(); err == nil {
+	if err := UnlockAgent(false); err == nil {
 		t.Fatal("unlock must fail with no presence mechanism")
 	}
 	p, _ := loadAgentPolicy()
@@ -108,7 +108,7 @@ func TestUnlockAgentUngatedWritesSession(t *testing.T) {
 	}
 	stubPresence(t, false, nil, errNoGUIPrompter)
 
-	if err := UnlockAgent(); err != nil {
+	if err := UnlockAgent(false); err != nil {
 		t.Fatalf("ungated unlock should succeed: %v", err)
 	}
 	p, _ := loadAgentPolicy()
@@ -126,7 +126,7 @@ func TestUnlockAgentStillDeniedInLockMode(t *testing.T) {
 		t.Fatalf("save policy: %v", err)
 	}
 	stubPresence(t, false, nil, nil) // gui would allow; lock must deny anyway
-	if err := UnlockAgent(); err == nil {
+	if err := UnlockAgent(false); err == nil {
 		t.Fatal("lock mode must deny unlock before presence is consulted")
 	}
 }
@@ -184,7 +184,7 @@ func TestUnlockAgentOpenModeIsNoOp(t *testing.T) {
 		t.Fatalf("save policy: %v", err)
 	}
 	stubPresence(t, false, nil, errNoGUIPrompter) // gate must not even run
-	if err := UnlockAgent(); err != nil {
+	if err := UnlockAgent(false); err != nil {
 		t.Fatalf("open-mode unlock should be a no-op, got %v", err)
 	}
 }
@@ -351,5 +351,160 @@ func TestGuiPresenceConfirmNoDisplay(t *testing.T) {
 	t.Setenv("DISPLAY", "")
 	if err := guiPresenceConfirm(context.Background(), "agent unlock"); !errors.Is(err, errNoGUIPrompter) {
 		t.Fatalf("headless must report no prompter, got %v", err)
+	}
+}
+
+// --passphrase-stdin: the passphrase is the presence proof — the agent
+// session is written only after unlockIdentity verifies it. The presence
+// chain must not run at all on this path.
+func TestUnlockAgentPassphraseStdin(t *testing.T) {
+	setupAgentEnv(t)
+	askPolicy(t, false)
+
+	ns, dir := nativeTestStore(t)
+	initNative(t, ns, "panel-pass")
+	oldStore := currentStore
+	currentStore = newNativeStoreAt(dir, t.TempDir())
+	t.Cleanup(func() { currentStore = oldStore })
+
+	// If the presence chain runs at all it errors, failing the test — the
+	// passphrase verification is the proof, no dialog may fire.
+	stubPresence(t, true, errors.New("presence chain must not run"), errors.New("presence chain must not run"))
+
+	oldStdin := readPassphraseStdin
+	readPassphraseStdin = func() (string, error) { return "panel-pass", nil }
+	t.Cleanup(func() { readPassphraseStdin = oldStdin })
+
+	if err := UnlockAgent(true); err != nil {
+		t.Fatalf("passphrase-stdin unlock: %v", err)
+	}
+	p, _ := loadAgentPolicy()
+	if !agentSessionActive(p) {
+		t.Fatal("expected an active agent session")
+	}
+	// And the store is actually unlocked — not just the session file.
+	if _, err := currentStore.Get("svc", "acct"); err != nil {
+		t.Fatalf("native store should be readable post-unlock: %v", err)
+	}
+}
+
+// A wrong passphrase must fail before any session material is written.
+func TestUnlockAgentPassphraseStdinWrongPass(t *testing.T) {
+	setupAgentEnv(t)
+	askPolicy(t, false)
+
+	ns, dir := nativeTestStore(t)
+	initNative(t, ns, "right-pass")
+	oldStore := currentStore
+	currentStore = newNativeStoreAt(dir, t.TempDir())
+	t.Cleanup(func() { currentStore = oldStore })
+
+	oldStdin := readPassphraseStdin
+	readPassphraseStdin = func() (string, error) { return "wrong-pass", nil }
+	t.Cleanup(func() { readPassphraseStdin = oldStdin })
+
+	err := UnlockAgent(true)
+	if err == nil || !strings.Contains(err.Error(), "native store unlock") {
+		t.Fatalf("err = %v, want a native-store unlock failure", err)
+	}
+	p, _ := loadAgentPolicy()
+	if agentSessionActive(p) {
+		t.Fatal("failed passphrase unlock must not write an agent session")
+	}
+	if _, err := os.Stat(agentSessionPath()); !os.IsNotExist(err) {
+		t.Fatalf("agent session file must not exist: %v", err)
+	}
+	if _, gerr := currentStore.Get("svc", "acct"); codeFromError(gerr) != "locked" {
+		t.Fatalf("store must stay locked after a wrong passphrase: %v", gerr)
+	}
+}
+
+// Read failures and an empty passphrase fail before verification — no
+// session material may be written on either path.
+func TestUnlockAgentPassphraseStdinInputErrors(t *testing.T) {
+	setupAgentEnv(t)
+	askPolicy(t, false)
+
+	ns, dir := nativeTestStore(t)
+	initNative(t, ns, "panel-pass")
+	oldStore := currentStore
+	currentStore = newNativeStoreAt(dir, t.TempDir())
+	t.Cleanup(func() { currentStore = oldStore })
+
+	oldStdin := readPassphraseStdin
+	t.Cleanup(func() { readPassphraseStdin = oldStdin })
+
+	for _, tc := range []struct {
+		name    string
+		stub    func() (string, error)
+		wantErr string
+	}{
+		{"read failure", func() (string, error) { return "", errors.New("boom") }, "read passphrase"},
+		{"empty passphrase", func() (string, error) { return "", nil }, "empty passphrase"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			readPassphraseStdin = func() (string, error) { return tc.stub() }
+			err := UnlockAgent(true)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("err = %v, want %q", err, tc.wantErr)
+			}
+			p, _ := loadAgentPolicy()
+			if agentSessionActive(p) {
+				t.Fatal("no session may be written on a bad read")
+			}
+		})
+	}
+}
+
+// The real reader refuses a TTY (input would echo) and accepts piped input
+// with or without a trailing newline or CRLF ending.
+func TestReadPassphraseStdin(t *testing.T) {
+	oldTTY := stdinIsTTY
+	t.Cleanup(func() { stdinIsTTY = oldTTY })
+
+	stdinIsTTY = func() bool { return true }
+	if _, err := readPassphraseStdin(); err == nil || !strings.Contains(err.Error(), "piped input") {
+		t.Fatalf("TTY stdin must be refused, got %v", err)
+	}
+
+	stdinIsTTY = func() bool { return false }
+	oldStdin := os.Stdin
+	t.Cleanup(func() { os.Stdin = oldStdin })
+	for _, tc := range []struct{ in, want string }{
+		{"panel-pass\n", "panel-pass"},
+		{"panel-pass", "panel-pass"},
+		{"panel-pass\r\n", "panel-pass"},
+	} {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Stdin = r
+		go func() { w.WriteString(tc.in); w.Close() }()
+		got, err := readPassphraseStdin()
+		r.Close()
+		if err != nil || got != tc.want {
+			t.Fatalf("read(%q) = %q, %v; want %q", tc.in, got, err, tc.want)
+		}
+	}
+}
+
+// The flag is meaningless on backends without a passphrase — fail loud
+// rather than silently ignoring stdin.
+func TestUnlockAgentPassphraseStdinNotNative(t *testing.T) {
+	setupAgentEnv(t)
+	askPolicy(t, false)
+
+	oldStore := currentStore
+	currentStore = ssStore{}
+	t.Cleanup(func() { currentStore = oldStore })
+
+	oldStdin := readPassphraseStdin
+	readPassphraseStdin = func() (string, error) { return "anything", nil }
+	t.Cleanup(func() { readPassphraseStdin = oldStdin })
+
+	err := UnlockAgent(true)
+	if err == nil || !strings.Contains(err.Error(), "backend: native") {
+		t.Fatalf("err = %v, want a native-backend requirement", err)
 	}
 }

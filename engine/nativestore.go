@@ -137,7 +137,7 @@ func newNativeStoreAt(dir, runtimeDir string) *nativeStore {
 	return &nativeStore{
 		dir:        dir,
 		runtimeDir: runtimeDir,
-		prompt:     nativePassphrasePrompt,
+		prompt:     nativePassphrasePromptTTY,
 		now:        func() time.Time { return time.Now().UTC() },
 		sessionTTL: defaultNativeTTL,
 	}
@@ -678,20 +678,31 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 // passphrase — tests stub it; real builds bind guiPromptDesc.
 var nativePromptGUI = guiPromptDesc
 
-// nativePassphrasePrompt reads the store passphrase on the TTY when one
-// exists; without a TTY it falls back to a masked GUI prompt (pinentry or
-// zenity) in a graphical session — that's what the panel's Unlock button and
-// other no-TTY GUI callers get. Truly headless pipes get "no tty" and take
-// the locked path instead of blocking on stdin.
+// nativePassphrasePromptTTY reads the store passphrase on the TTY only.
+// ensureIdentity binds this via s.prompt, preserving the invariant that
+// implicit unlock-on-read never prompts non-TTY callers (agents, the panel's
+// background `omaseal list`, pipes) — they take the locked path instead of a
+// spontaneous dialog.
+func nativePassphrasePromptTTY(label string) (string, error) {
+	if !stdinIsTTY() {
+		return "", errors.New("no tty")
+	}
+	fmt.Fprintf(os.Stderr, "%s: ", label)
+	b, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Fprintln(os.Stderr) // ReadPassword does not echo the newline
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// nativePassphrasePrompt serves explicit user-driven unlock: the TTY when one
+// exists, else a masked GUI prompt (pinentry or zenity) in a graphical
+// session — that's what `agent unlock` invoked from a panel or launcher gets.
+// Truly headless callers get "no tty" and take the locked path.
 func nativePassphrasePrompt(label string) (string, error) {
 	if stdinIsTTY() {
-		fmt.Fprintf(os.Stderr, "%s: ", label)
-		b, err := term.ReadPassword(int(os.Stdin.Fd()))
-		fmt.Fprintln(os.Stderr) // ReadPassword does not echo the newline
-		if err != nil {
-			return "", err
-		}
-		return string(b), nil
+		return nativePassphrasePromptTTY(label)
 	}
 	if graphicalSession() {
 		ctx, cancel := withPromptDeadline(context.Background())

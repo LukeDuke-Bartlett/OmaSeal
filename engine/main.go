@@ -69,6 +69,9 @@ Usage:
   omaseal setup [--yes]                    onboarding: doctor + agent wiring
   omaseal agent mode <open|ask|lock> [min] [--ungated] set agent/MCP trust mode
   omaseal agent unlock                     user-presence unlock for ask mode
+      --passphrase-stdin                   native backend: read the store passphrase
+                                           from stdin (panels, launchers) — the
+                                           passphrase itself is the presence proof
   omaseal agent lock                       revoke agent session
   omaseal agent status [--json]            show agent policy and session
   omaseal agent keepalive [on|off]         session renews on activity (ask mode)

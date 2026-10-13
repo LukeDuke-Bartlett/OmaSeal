@@ -117,6 +117,42 @@ func TestAgentStatusJSONContract(t *testing.T) {
 	}
 }
 
+// The panel keys its unlock UX off `backend` — it must reflect the live
+// store, not a config re-read.
+func TestAgentStatusJSONBackend(t *testing.T) {
+	setupAgentEnv(t)
+	askPolicy(t, false)
+
+	oldStore := currentStore
+	t.Cleanup(func() { currentStore = oldStore })
+
+	currentStore = ssStore{}
+	s, err := agentStatusJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d map[string]any
+	if err := json.Unmarshal([]byte(s), &d); err != nil {
+		t.Fatal(err)
+	}
+	if d["backend"] != "secretservice" {
+		t.Fatalf("backend = %v, want secretservice", d["backend"])
+	}
+
+	_, dir := nativeTestStore(t)
+	currentStore = newNativeStoreAt(dir, t.TempDir())
+	s, err = agentStatusJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(s), &d); err != nil {
+		t.Fatal(err)
+	}
+	if d["backend"] != "native" {
+		t.Fatalf("backend = %v, want native", d["backend"])
+	}
+}
+
 func TestSetAgentModePreservesPolicy(t *testing.T) {
 	setupAgentEnv(t)
 	if err := saveAgentPolicy(AgentPolicy{

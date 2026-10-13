@@ -36,6 +36,10 @@ Panel {
   property string agentSessionExpires: ""
   property bool agentKeepAlive: false
   property bool fprintdAvailable: true
+  property string agentBackend: ""
+  // Staged only for the duration of the unlockProc stdin write; cleared
+  // immediately after — never logged or shown.
+  property string unlockPassphrase: ""
 
   // Organization state
   property bool expanded: false
@@ -100,6 +104,8 @@ Panel {
 
   function close() {
     root.controller.hide()
+    passphraseField.text = ""
+    root.unlockPassphrase = ""
   }
 
   function toggle() {
@@ -296,17 +302,34 @@ Panel {
       root.agentSessionExpires = d.session_expires || ""
       root.agentKeepAlive = d.keep_alive === true
       root.fprintdAvailable = d.fprintd_available !== false
+      root.agentBackend = d.backend || ""
     } catch (e) {
       root.agentMode = ""
       root.agentSessionActive = false
       root.agentSessionExpires = ""
       root.agentKeepAlive = false
       root.fprintdAvailable = true
+      root.agentBackend = ""
     }
   }
 
   function unlockAgent() {
-    if (!unlockProc.running) unlockProc.running = true
+    if (unlockProc.running) return
+    var native = root.agentBackend === "native"
+    if (native) {
+      var pass = passphraseField.text
+      if (!pass) {
+        root.notice = "Enter the OmaSeal passphrase to unlock"
+        passphraseField.forceActiveFocus()
+        return
+      }
+      root.unlockPassphrase = pass
+    } else {
+      root.unlockPassphrase = ""
+    }
+    unlockProc.command = ["omaseal", "agent", "unlock"].concat(native ? ["--passphrase-stdin"] : [])
+    unlockProc.stdinEnabled = true // a finished run latches it false
+    unlockProc.running = true
   }
 
   function applyLogs(raw) {
@@ -533,11 +556,24 @@ Panel {
 
   Process {
     id: unlockProc
-    command: ["omaseal", "agent", "unlock"]
-    stderr: StdioCollector {}
+    stdinEnabled: true
+    stderr: StdioCollector { waitForEnd: true }
+    onStarted: {
+      if (root.unlockPassphrase !== "") {
+        unlockProc.write(root.unlockPassphrase + "\n")
+      }
+      root.unlockPassphrase = ""
+      unlockProc.stdinEnabled = false
+    }
+    // A failed spawn skips onStarted/onExited — don't strand the staged pass.
+    onRunningChanged: {
+      if (!unlockProc.running) root.unlockPassphrase = ""
+    }
     onExited: function(exitCode) {
+      passphraseField.text = ""
       if (exitCode === 0) {
         root.refreshAgentStatus()
+        root.refresh() // the store may have just unlocked — repopulate
       } else {
         var lines = (unlockProc.stderr.text || "").split("\n")
         var detail = ""
@@ -680,7 +716,7 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: serviceField.activeFocus || accountField.activeFocus || secretField.activeFocus || searchField.activeFocus || vaultDropdown.popupOpen
+      blocked: serviceField.activeFocus || accountField.activeFocus || secretField.activeFocus || searchField.activeFocus || passphraseField.activeFocus || vaultDropdown.popupOpen
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onMoveRequested: function(dx, dy) {
@@ -950,6 +986,18 @@ Panel {
                 bordered: true
                 onClicked: root.unlockAgent()
               }
+            }
+
+            TextField {
+              id: passphraseField
+              Layout.fillWidth: true
+              visible: root.agentMode === "ask" && !root.agentSessionActive &&
+                       root.agentBackend === "native"
+              enabled: !unlockProc.running
+              password: true
+              placeholderText: "OmaSeal passphrase"
+              foreground: root.fg
+              Keys.onReturnPressed: root.unlockAgent()
             }
 
             // fprintd availability notice — only relevant when ask mode gates on it.
