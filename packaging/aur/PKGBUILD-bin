@@ -33,8 +33,8 @@ package() {
   # PluginRegistry scans ${OMARCHY_PATH}/shell/plugins (i.e. /usr/share/omarchy/shell/plugins)
   # for first-party plugins; the directory must be the manifest ID.
   local _plugindir="${pkgdir}/usr/share/omarchy/shell/plugins/io.github.duketopceo.omaseal"
-  install -Dm644 BarWidget.qml -t "${_plugindir}/"
-  install -Dm644 Panel.qml -t "${_plugindir}/"
+  install -Dm644 BarWidget.qml Panel.qml PanelJobs.qml PanelModel.qml \
+    SecretsView.qml AgentSection.qml AddEditForm.qml -t "${_plugindir}/"
   install -Dm644 manifest.json -t "${_plugindir}/"
   install -Dm644 LICENSE -t "${pkgdir}/usr/share/licenses/${pkgname}/"
 }

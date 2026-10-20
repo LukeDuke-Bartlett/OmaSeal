@@ -19,6 +19,12 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - name: Install qmllint
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qt6-declarative-dev-tools
+      - name: Panel checks
+        run: bash scripts/check-panel.sh
       - name: Install Secret Service dependencies
         run: |
           sudo apt-get update
@@ -68,5 +74,5 @@ jobs:
             -o omaseal .
           cd ..
           cp engine/omaseal dist/omaseal-linux-${{ matrix.release_name }}/omaseal
-          cp BarWidget.qml Panel.qml manifest.json README.md LICENSE dist/omaseal-linux-${{ matrix.release_name }}/
+          cp BarWidget.qml Panel.qml PanelJobs.qml PanelModel.qml SecretsView.qml AgentSection.qml AddEditForm.qml manifest.json README.md LICENSE dist/omaseal-linux-${{ matrix.release_name }}/
           tar -czf dist/omaseal-linux-${{ matrix.release_name }}.tar.gz -C dist omaseal-linux-${{ matrix.release_name }}

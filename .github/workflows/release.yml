@@ -45,7 +45,7 @@ jobs:
           grep -q "\"version\": \"${GITHUB_REF_NAME#v}\"" manifest.json \
             || { echo "manifest.json version stamp did not land" >&2; exit 1; }
           cp engine/omaseal dist/omaseal-linux-${{ matrix.release_name }}/omaseal
-          cp BarWidget.qml Panel.qml manifest.json README.md LICENSE dist/omaseal-linux-${{ matrix.release_name }}/
+          cp BarWidget.qml Panel.qml PanelJobs.qml PanelModel.qml SecretsView.qml AgentSection.qml AddEditForm.qml manifest.json README.md LICENSE dist/omaseal-linux-${{ matrix.release_name }}/
           tar -czf dist/omaseal-linux-${{ matrix.release_name }}.tar.gz -C dist omaseal-linux-${{ matrix.release_name }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
