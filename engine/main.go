@@ -40,6 +40,9 @@ func usage() {
 
 Usage:
   omaseal set <service> <account>          store secret from stdin
+  omaseal ask-save <service> <account>     popup the user for a secret, then
+                                           store it — for agents; the value
+                                           never passes through the caller
   omaseal get <service> <account>          print stored secret
   omaseal reveal <service> <account>       print secret after user-presence gate
   omaseal del <service> <account>          delete stored secret
@@ -124,6 +127,8 @@ func main() {
 		return
 	case "set":
 		handleSet()
+	case "ask-save":
+		handleAskSave()
 	case "get":
 		handleGet()
 	case "reveal":

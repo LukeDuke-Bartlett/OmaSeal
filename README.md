@@ -130,6 +130,10 @@ See [`docs/onboarding.md`](docs/onboarding.md) for wiring OmaSeal into agents an
 # Store (secret is read from a hidden prompt or a file; never pass it as an argument)
 omaseal set openrouter default
 
+# Popup store (for agents: a masked OS dialog collects the value — the
+# caller only learns whether it saved, never the secret itself)
+omaseal ask-save openrouter default
+
 # Retrieve (fast, local-only)
 omaseal get openrouter default
 
@@ -321,7 +325,7 @@ Existing servers and unrelated top-level keys are preserved; `install-*`
 commands only add or replace the `omaseal` entry.
 
 Tools: `omaseal_get`, `omaseal_resolve`, `omaseal_set`,
-`omaseal_delete`, `omaseal_list`. The server also returns `instructions` at
+`omaseal_ask_save`, `omaseal_delete`, `omaseal_list`. The server also returns `instructions` at
 `initialize` time, so connected agents automatically know to resolve secrets
 through OmaSeal instead of asking for pastes or reading `.env` files.
 

@@ -112,6 +112,8 @@ const mcpInstructions = `OmaSeal is the system keyring on this Omarchy machine �
 	`service and account name (for example service="openrouter", account="default") instead of asking the user to ` +
 	`paste secrets, reading .env files, or grepping dotfiles. When the user gives you a new credential to keep, ` +
 	`store it with omaseal_set — never write secrets to files, dotfiles, shell arguments, or logs. ` +
+	`When the USER needs to type or paste the credential, call omaseal_ask_save instead: it opens a masked ` +
+	`system dialog, stores the answer, and the value never passes through your context. ` +
 	`omaseal_list returns service/account metadata only (no values) and is safe for discovering what is stored. ` +
 	`A stored omaseal://<service>/<account> reference may be passed verbatim in the service field of any tool. ` +
 	`omaseal_stats reports per-secret access counts so you can find the credential the user means by its usage. ` +
@@ -166,6 +168,19 @@ var mcpToolsResult = map[string]any{
 					"secret":  map[string]string{"type": "string"},
 				},
 				"required": []string{"service", "secret"},
+			},
+		},
+		{
+			"name":        "omaseal_ask_save",
+			"description": "Ask the USER to enter a secret via a masked system dialog, then store it under service/account. Use this whenever the human must supply the credential — the value is collected by the OS dialog and never passes through your context or this tool call. Returns ok on save; cancelled/locked errors tell you what the user should do next.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"service":     map[string]string{"type": "string"},
+					"account":     map[string]string{"type": "string"},
+					"description": map[string]string{"type": "string"},
+				},
+				"required": []string{"service"},
 			},
 		},
 		{
@@ -227,7 +242,7 @@ func toolOperation(name string) string {
 		return "get"
 	case "omaseal_resolve":
 		return "resolve"
-	case "omaseal_set":
+	case "omaseal_set", "omaseal_ask_save":
 		return "set"
 	case "omaseal_delete":
 		return "delete"
@@ -380,6 +395,30 @@ func callMCPTool(req mcpToolCall) *mcpResponse {
 		if err := storeSet(service, account, a.Secret); err != nil {
 			return toolErrorResp(req, err)
 		}
+		r.Content = append(r.Content, map[string]any{"type": "text", "text": "ok"})
+
+	case "omaseal_ask_save":
+		var a struct {
+			Service     string `json:"service"`
+			Account     string `json:"account"`
+			Description string `json:"description"`
+		}
+		if err := json.Unmarshal(req.Arguments, &a); err != nil {
+			return errResp(req, err)
+		}
+		// Writes are strict, same as omaseal_set — the dialog stores under
+		// this name, so it must satisfy the shared charset.
+		service, account, err := refAwareCredentials(a.Service, a.Account, true)
+		if err != nil {
+			return toolErrorResp(req, err)
+		}
+		if err := checkManifestPolicy(service, account); err != nil {
+			return toolErrorResp(req, err)
+		}
+		if err := askSave(context.Background(), service, account, a.Description); err != nil {
+			return toolErrorResp(req, err)
+		}
+		WriteLog("ask-save %s/%s", service, account)
 		r.Content = append(r.Content, map[string]any{"type": "text", "text": "ok"})
 
 	case "omaseal_delete":
