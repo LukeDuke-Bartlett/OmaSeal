@@ -28,13 +28,9 @@ func LogPath() string {
 }
 
 func ensureLogDir() (string, error) {
-	base := os.Getenv("XDG_STATE_HOME")
+	base := svcXDGDir("XDG_STATE_HOME", ".local", "state")
 	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		base = filepath.Join(home, ".local", "state")
+		return "", fmt.Errorf("no home dir for log fallback")
 	}
 	dir := filepath.Join(base, "omaseal")
 	if err := os.MkdirAll(dir, 0o700); err != nil {

@@ -28,7 +28,7 @@ jobs:
       - name: Install Secret Service dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gnome-keyring dbus-x11
+          sudo apt-get install -y gnome-keyring dbus-x11 libsecret-tools
           mkdir -p ~/.local/share/keyrings
           chmod 700 -R ~/.local
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -47,9 +47,31 @@ jobs:
             && go tool cover -func=coverage.out | tail -1 && rm -f coverage.out
         shell: dbus-run-session -- bash --noprofile --norc -eo pipefail {0}
 
+  test-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install Secret Service dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gnome-keyring dbus-x11 libsecret-tools
+          mkdir -p ~/.local/share/keyrings
+          chmod 700 -R ~/.local
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: engine/go.mod
+          cache-dependency-path: engine/go.sum
+      - name: Test
+        run: |
+          echo 'ci-password' | gnome-keyring-daemon --unlock
+          make test
+        shell: dbus-run-session -- bash --noprofile --norc -eo pipefail {0}
+
   build:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, test-arm64]
     strategy:
       matrix:
         include:
@@ -74,5 +96,5 @@ jobs:
             -o omaseal .
           cd ..
           cp engine/omaseal dist/omaseal-linux-${{ matrix.release_name }}/omaseal
-          cp BarWidget.qml Panel.qml PanelJobs.qml PanelModel.qml SecretsView.qml AgentSection.qml AddEditForm.qml manifest.json README.md LICENSE dist/omaseal-linux-${{ matrix.release_name }}/
+          cp BarWidget.qml Panel.qml PanelJobs.qml PanelModel.qml SecretsView.qml AgentSection.qml AddEditForm.qml manifest.json README.md LICENSE contrib/omaseal-provider.service dist/omaseal-linux-${{ matrix.release_name }}/
           tar -czf dist/omaseal-linux-${{ matrix.release_name }}.tar.gz -C dist omaseal-linux-${{ matrix.release_name }}

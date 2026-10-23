@@ -116,6 +116,9 @@ omaseal selftest        # set/get/delete round-trip against the live keyring
 omaseal mcp status      # which agents are detected and already wired
 omaseal agent mode <open|ask|lock> [min] [--ungated]  # set agent/MCP trust mode
 omaseal agent unlock                      # presence-gated unlock for ask mode
+                                          # (an interactive native-store unlock
+                                          # also mints one — CLI get or the
+                                          # panel field, per agent policy)
 omaseal agent unlock --passphrase-stdin   # native backend: passphrase piped on
                                           # stdin; verified cryptographically —
                                           # no dialog needed (panels, launchers)
@@ -171,6 +174,13 @@ omaseal keyring migrate [--dry-run] [--delete-old] [-y]
 
 # Copy every Secret Service item into the native store (idempotent, source untouched)
 omaseal migrate [--dry-run] [-y]
+
+# Serve org.freedesktop.secrets yourself — OmaSeal becomes the system keyring
+# (every libsecret client: gh, VS Code, copilot, docker credential helpers)
+omaseal provider status     # who owns the name + whether activation is installed
+omaseal provider enable     # install the D-Bus activation shadow + systemd unit
+omaseal provider disable    # stop the daemon, remove activation, restore the OS provider
+omaseal provider serve      # foreground serve (usually started by bus activation)
 
 # Usage analytics — what accessed which secrets, and when
 omaseal stats [--json]

@@ -22,9 +22,14 @@ const (
 // mode:
 //   - "open"  : agents can read and write secrets freely. Opt-in only — the
 //     default for a missing policy is "ask", never "open".
-//   - "ask"   : agents must run `omaseal agent unlock` (biometric if available)
-//     before any MCP tool that touches secrets.
-//   - "lock"  : agents cannot access secrets at all.
+//   - "ask"   : agents need a live session before any MCP tool that touches
+//     secrets. A session is minted by `omaseal agent unlock` (biometric if
+//     available) OR by any passphrase-verified store unlock — CLI get/set,
+//     the panel's unlock field, or a Secret Service Prompt through the
+//     provider daemon — because a correct passphrase is the same presence
+//     proof. `omaseal agent lock` revokes the session file.
+//   - "lock"  : agents cannot access secrets at all. The provider daemon
+//     fails closed too — per-call gate, live sessions included.
 //
 // primary_agent is the user's main agent; agents lists the assigned defaults.
 // Both are used by `omaseal mcp install-detected` and `omaseal setup` so the
@@ -55,13 +60,9 @@ func defaultAgentPolicy() AgentPolicy {
 // without creating it — write paths layer MkdirAll on top so reads never
 // conjure the directory as a side effect.
 func omasealConfigDir() string {
-	base := os.Getenv("XDG_CONFIG_HOME")
+	base := svcXDGDir("XDG_CONFIG_HOME", ".config")
 	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return ""
-		}
-		base = filepath.Join(home, ".config")
+		return ""
 	}
 	return filepath.Join(base, agentConfigDirName)
 }
@@ -151,6 +152,30 @@ func writeSessionExpiry(expiry time.Time) error {
 	return writeFileMode(path, []byte(sessionExpiryText(expiry)), 0600)
 }
 
+// mintAgentSessionIfAsk arms the agent session after a passphrase-verified
+// store unlock (any path: TTY/GUI prompt inside list/get, panel field). A
+// correct passphrase is the same presence proof UnlockAgent relies on, so
+// ask-mode callers get one unlock for the store and the agent window alike.
+// Mode "lock" still denies agents; mode "open" needs no session. Never
+// shrinks an existing session that already outlives the new window.
+func mintAgentSessionIfAsk() {
+	p, err := loadAgentPolicy()
+	if err != nil || p.Mode != "ask" {
+		return
+	}
+	expiry := time.Now().UTC().Add(time.Duration(p.SessionMinutes) * time.Minute)
+	if cur, ok := readSessionExpiry(); ok && cur.After(expiry) {
+		return
+	}
+	if err := writeSessionExpiry(expiry); err != nil {
+		WriteLog("agent session mint after store unlock failed: %v", err)
+		return
+	}
+	// The unlock also armed same-UID agents — say so on stderr (stdout can
+	// carry a secret) so the grant is never silent.
+	fmt.Fprintf(os.Stderr, "omaseal: store unlock armed the agent session for %dm — `omaseal agent lock` revokes\n", p.SessionMinutes)
+}
+
 // renewSessionExpiry updates an existing session file in place. Unlike
 // writeSessionExpiry it never creates the file, so a keep-alive renewal can
 // never resurrect a session revoked by `agent lock` mid-operation. The
@@ -191,7 +216,9 @@ func clearAgentSession() error {
 	if ns, ok := currentStore.(*nativeStore); ok {
 		nerr = ns.clearNativeSession()
 	}
-	return errors.Join(nerr, removeIfExists(agentSessionPath()))
+	// The unlock-epoch marker is how a running provider daemon revokes a
+	// prompt-derived in-memory unlock — agent lock must reach it too.
+	return errors.Join(nerr, removeIfExists(agentSessionPath()), removeIfExists(svcUnlockEpochPath()))
 }
 
 // AgentMode returns the current mode for use in status/CLI output.

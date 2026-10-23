@@ -80,6 +80,9 @@ Usage:
   omaseal agent keepalive [on|off]         session renews on activity (ask mode)
   omaseal agent primary <name>             set your main agent
   omaseal agent defaults [names...|--clear] set assigned default agents
+  omaseal provider serve                   run the Secret Service provider daemon
+  omaseal provider status                  show org.freedesktop.secrets ownership
+  omaseal provider enable|disable          install/remove bus activation files
 
 References:
   Everywhere <service> <account> is accepted, a single omaseal://<service>/<account>
@@ -107,6 +110,14 @@ Examples:
 
 func main() {
 	SetLogOutput()
+
+	// `provider` serves the Secret Service bus on the native store directly —
+	// dispatch before selectStore so a corrupt config or a `secretservice`
+	// backend can't kill the daemon or recurse into itself.
+	if len(os.Args) >= 2 && os.Args[1] == "provider" {
+		handleProvider()
+		return
+	}
 
 	if err := selectStore(); err != nil {
 		fmt.Fprintln(os.Stderr, "omaseal:", err)

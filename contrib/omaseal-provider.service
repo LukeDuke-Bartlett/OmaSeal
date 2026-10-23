@@ -1,0 +1,21 @@
+# OmaSeal Secret Service provider — installed inert by the package.
+# The daemon activates on demand via the D-Bus services file that
+# `omaseal provider enable` writes to ~/.local/share/dbus-1/services/;
+# nothing enables or starts this unit by default.
+#
+# Keep this file byte-identical to svcUnitContents in engine/svcfiles.go —
+# `provider enable` writes the same unit for non-package installs, and drift
+# between the two means the systemd-managed and embedded paths diverge.
+[Unit]
+Description=OmaSeal Secret Service provider
+Documentation=https://github.com/duketopceo/OmaSeal
+
+[Service]
+Type=dbus
+BusName=org.freedesktop.secrets
+ExecStart=/usr/bin/omaseal provider serve
+LimitCORE=0
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

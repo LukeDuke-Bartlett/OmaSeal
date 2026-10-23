@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -42,7 +43,7 @@ type nativeStore struct {
 	dir         string                             // state dir for the store files
 	runtimeDir  string                             // tmpfs dir for session identity
 	pub         *age.X25519Recipient               // always available — public half
-	identity    *age.X25519Identity                // nil while locked
+	identity    atomic.Pointer[age.X25519Identity] // nil while locked
 	identityEnc []byte                             // passphrase-wrapped identity blob
 	prompt      func(label string) (string, error) // nil → never prompt
 	now         func() time.Time
@@ -123,12 +124,7 @@ const (
 // newNativeStore returns the production native backend rooted at
 // $XDG_STATE_HOME/omaseal/native with the agent runtime dir for sessions.
 func newNativeStore() *nativeStore {
-	base := os.Getenv("XDG_STATE_HOME")
-	if base == "" {
-		if home, err := os.UserHomeDir(); err == nil {
-			base = filepath.Join(home, ".local", "state")
-		}
-	}
+	base := svcXDGDir("XDG_STATE_HOME", ".local", "state")
 	return newNativeStoreAt(filepath.Join(base, "omaseal", "native"), agentRuntimeDir())
 }
 
@@ -222,7 +218,7 @@ func (s *nativeStore) Get(service, account string) (string, error) {
 	if err != nil {
 		return "", keyringError(err)
 	}
-	src, err := age.Decrypt(bytes.NewReader(raw), s.identity)
+	src, err := age.Decrypt(bytes.NewReader(raw), s.identity.Load())
 	if err != nil {
 		return "", keyringError(fmt.Errorf("decrypt: %w", err))
 	}
@@ -305,40 +301,63 @@ func (s *nativeStore) List(service string) ([]Item, error) {
 // expires. A wrong passphrase is a failed read — nothing on disk is touched
 // (invariant I2).
 func (s *nativeStore) unlockIdentity(passphrase string, expires time.Time) error {
+	if err := s.unwrapIdentity(passphrase); err != nil {
+		return err
+	}
+	return s.seedSession(expires)
+}
+
+// unwrapIdentity is unlockIdentity minus the tmpfs session seed — the
+// provider daemon's prompt-derived unlock stops here, holding identity in
+// memory only so file-derived vs prompt-derived provenance stays
+// distinguishable and `agent lock` revocation is never faked by leftover
+// session files (KTD2).
+func (s *nativeStore) unwrapIdentity(passphrase string) error {
+	id, err := s.unwrapIdentityPass(passphrase)
+	if err != nil {
+		return err
+	}
+	s.identity.Store(id)
+	return nil
+}
+
+// unwrapIdentityPass is unwrapIdentity minus the memory commit — callers
+// that must gate publication (the provider's prompt path) store the identity
+// themselves only after their veto checks pass.
+func (s *nativeStore) unwrapIdentityPass(passphrase string) (*age.X25519Identity, error) {
 	if s.identityEnc == nil {
 		blob, err := os.ReadFile(filepath.Join(s.dir, nativeIdentityFile))
 		if errors.Is(err, os.ErrNotExist) {
-			return newError("store_uninitialized", "omaseal get (or migrate) in a terminal first", err)
+			return nil, newError("store_uninitialized", "omaseal get (or migrate) in a terminal first", err)
 		}
 		if err != nil {
-			return keyringError(err)
+			return nil, keyringError(err)
 		}
 		s.identityEnc = blob
 	}
 	sid, err := age.NewScryptIdentity(passphrase)
 	if err != nil {
-		return keyringError(err)
+		return nil, keyringError(err)
 	}
 	src, err := age.Decrypt(bytes.NewReader(s.identityEnc), sid)
 	if err != nil {
-		return newError("unlock_denied", "wrong passphrase", fmt.Errorf("unlock: %w", err))
+		return nil, newError("unlock_denied", "wrong passphrase", fmt.Errorf("unlock: %w", err))
 	}
 	raw, err := io.ReadAll(src)
 	if err != nil {
-		return keyringError(err)
+		return nil, keyringError(err)
 	}
 	id, err := age.ParseX25519Identity(strings.TrimSpace(string(raw)))
 	if err != nil {
-		return keyringError(err)
+		return nil, keyringError(err)
 	}
-	s.identity = id
-	return s.seedSession(expires)
+	return id, nil
 }
 
 // ensureIdentity resolves the decryption identity: memory → tmpfs session →
 // TTY prompt → locked error. Never prompts for agents/non-TTY callers.
 func (s *nativeStore) ensureIdentity() error {
-	if s.identity != nil {
+	if s.identity.Load() != nil {
 		return nil
 	}
 	if err := s.loadSession(); err == nil {
@@ -348,6 +367,7 @@ func (s *nativeStore) ensureIdentity() error {
 		pass, err := s.prompt("OmaSeal passphrase")
 		if err == nil && pass != "" {
 			if uerr := s.unlockIdentity(pass, s.now().Add(s.sessionTTL)); uerr == nil {
+				mintAgentSessionIfAsk()
 				return nil
 			} else {
 				return uerr
@@ -360,7 +380,7 @@ func (s *nativeStore) ensureIdentity() error {
 // seedSession re-wraps the in-memory identity to an ephemeral key in the
 // runtime dir — tmpfs, 0600, dies at logout like the agent session file.
 func (s *nativeStore) seedSession(expires time.Time) error {
-	if s.identity == nil {
+	if s.identity.Load() == nil {
 		return errNativeLocked
 	}
 	eph, err := age.GenerateX25519Identity()
@@ -372,7 +392,7 @@ func (s *nativeStore) seedSession(expires time.Time) error {
 	if err != nil {
 		return keyringError(err)
 	}
-	if _, err := w.Write([]byte(s.identity.String())); err != nil {
+	if _, err := w.Write([]byte(s.identity.Load().String())); err != nil {
 		return keyringError(err)
 	}
 	if err := w.Close(); err != nil {
@@ -435,7 +455,7 @@ func (s *nativeStore) loadSession() error {
 	if err != nil {
 		return err
 	}
-	s.identity = id
+	s.identity.Store(id)
 	return nil
 }
 
@@ -460,7 +480,7 @@ func removeIfExists(path string) error {
 // clearNativeSession removes the tmpfs session identity — called by
 // `agent lock` so locking the agent also drops the unwrapped key path.
 func (s *nativeStore) clearNativeSession() error {
-	s.identity = nil
+	s.identity.Store(nil)
 	return s.unlinkSessionFiles()
 }
 
@@ -498,10 +518,10 @@ func (s *nativeStore) healPub() error {
 		return err
 	}
 	if err := atomicWriteFile(filepath.Join(s.dir, nativePubFile),
-		[]byte(s.identity.Recipient().String()+"\n"), 0600); err != nil {
+		[]byte(s.identity.Load().Recipient().String()+"\n"), 0600); err != nil {
 		return keyringError(err)
 	}
-	s.pub = s.identity.Recipient()
+	s.pub = s.identity.Load().Recipient()
 	return nil
 }
 
@@ -576,7 +596,7 @@ func (s *nativeStore) initFresh() error {
 		[]byte(id.Recipient().String()+"\n"), 0600); err != nil {
 		return keyringError(err)
 	}
-	s.identity = id
+	s.identity.Store(id)
 	s.identityEnc = wrapped
 	s.pub = id.Recipient()
 	return s.seedSession(s.now().Add(s.sessionTTL))

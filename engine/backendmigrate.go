@@ -148,6 +148,26 @@ func handleMigrate(args []string) {
 		}
 	}
 
+	// Self-serve guard: if our own provider daemon owns org.freedesktop.secrets
+	// — or an omaseal activation is installed that could take the name
+	// mid-migrate — migrate would read OmaSeal back into itself. Require an
+	// explicit disable rather than silently looping the same store.
+	// The activation check reads a local file — it must run even when no
+	// session bus is reachable, or migrate fails open and can self-serve.
+	if svcActivationIsOurs() {
+		fmt.Fprintf(os.Stderr, "error: an omaseal activation file is installed at %s — it can claim %s mid-migrate and self-serve.\n", svcActivationPath(), svcBusName)
+		fmt.Fprintln(os.Stderr, "Run `omaseal provider disable` first, then retry.")
+		os.Exit(1)
+	}
+	if conn, err := svcConnect(""); err == nil {
+		defer func() { _ = conn.Close() }()
+		if ours, owner, _ := svcOwnerIsOurs(conn); ours {
+			fmt.Fprintf(os.Stderr, "error: %s is owned by this omaseal daemon (%s) — migrate would self-serve.\n", svcBusName, owner)
+			fmt.Fprintln(os.Stderr, "Run `omaseal provider disable` first, then retry.")
+			os.Exit(1)
+		}
+	}
+
 	dst := newNativeStore()
 	src := ssStore{}
 

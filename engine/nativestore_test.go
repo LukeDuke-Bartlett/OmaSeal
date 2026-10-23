@@ -144,7 +144,7 @@ func TestNativeSetWhileLocked(t *testing.T) {
 func TestNativeBadUnlockNeverWrites(t *testing.T) {
 	s, dir := nativeTestStore(t)
 	initNative(t, s, "right-pass")
-	s.identity = nil
+	s.identity.Store(nil)
 
 	before := nativeDigests(t, dir)
 	for i := 0; i < 5; i++ {
@@ -238,7 +238,7 @@ func TestNativeTamperEvidence(t *testing.T) {
 	}
 	// The original still reads fine.
 	s.prompt = func(string) (string, error) { return "test-pass", nil }
-	s.identity = nil
+	s.identity.Store(nil)
 	if got, err := s.Get("real", "key"); err != nil || got != "secret-value" {
 		t.Fatalf("legit value after tamper test: got=%q err=%v", got, err)
 	}
@@ -318,7 +318,7 @@ func TestNativeSessionIdentity(t *testing.T) {
 func TestNativeLockedErrorCode(t *testing.T) {
 	s, _ := nativeTestStore(t)
 	initNative(t, s, "test-pass")
-	s.identity = nil
+	s.identity.Store(nil)
 	s.prompt = nil
 	if err := os.RemoveAll(s.runtimeDir); err != nil {
 		t.Fatal(err)
@@ -347,7 +347,7 @@ func TestNativeUninitializedNonTTY(t *testing.T) {
 func TestNativePromptWrongPass(t *testing.T) {
 	s, dir := nativeTestStore(t)
 	initNative(t, s, "right")
-	s.identity = nil
+	s.identity.Store(nil)
 	_ = os.RemoveAll(s.runtimeDir)
 	s.runtimeDir = t.TempDir()
 	s.prompt = func(string) (string, error) { return "wrong", nil }
@@ -454,5 +454,65 @@ func TestEnsureIdentityNeverGUIPrompts(t *testing.T) {
 	}
 	if called {
 		t.Fatal("ensureIdentity spawned a GUI prompt for a non-TTY caller")
+	}
+}
+
+// One unlock unlocks both windows: a passphrase-verified store unlock via
+// the ensureIdentity prompt path (GUI prompt, TTY prompt — anywhere but
+// `agent unlock` itself) must also mint the agent session in ask mode.
+func TestStorePromptUnlockMintsAgentSession(t *testing.T) {
+	setupAgentEnv(t)
+	askPolicy(t, false)
+	s, _ := nativeTestStore(t)
+	initNative(t, s, "test-pass")
+	s.clearNativeSession()
+
+	if _, err := s.Get("svc", "acct"); err != nil {
+		t.Fatalf("prompt unlock via Get: %v", err)
+	}
+	exp, ok := readSessionExpiry()
+	if !ok {
+		t.Fatal("store unlock did not mint the agent session")
+	}
+	if exp.Before(time.Now().UTC().Add(14 * time.Minute)) {
+		t.Fatalf("agent session expiry too soon: %v", exp)
+	}
+}
+
+// Mode "lock" still denies agents — a store unlock must not arm them.
+func TestStorePromptUnlockSkipsAgentSessionInLockMode(t *testing.T) {
+	setupAgentEnv(t)
+	if err := saveAgentPolicy(AgentPolicy{Mode: "lock", SessionMinutes: 15}); err != nil {
+		t.Fatalf("save policy: %v", err)
+	}
+	s, _ := nativeTestStore(t)
+	initNative(t, s, "test-pass")
+	s.clearNativeSession()
+
+	if _, err := s.Get("svc", "acct"); err != nil {
+		t.Fatalf("store unlock: %v", err)
+	}
+	if _, ok := readSessionExpiry(); ok {
+		t.Fatal("lock mode minted an agent session")
+	}
+}
+
+// An existing agent session that outlives the new window must not shrink.
+func TestStorePromptUnlockNeverShrinksSession(t *testing.T) {
+	setupAgentEnv(t)
+	askPolicy(t, false)
+	s, _ := nativeTestStore(t)
+	initNative(t, s, "test-pass")
+	s.clearNativeSession()
+
+	long := time.Now().UTC().Add(48 * time.Hour)
+	if err := writeSessionExpiry(long); err != nil {
+		t.Fatalf("seed session: %v", err)
+	}
+	if _, err := s.Get("svc", "acct"); err != nil {
+		t.Fatalf("store unlock: %v", err)
+	}
+	if exp, _ := readSessionExpiry(); exp.Unix() < long.Unix() {
+		t.Fatalf("mint shrank existing session: %v < %v", exp, long)
 	}
 }
