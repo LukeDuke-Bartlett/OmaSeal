@@ -1,5 +1,24 @@
 # OmaSeal Roadmap
 
+## Program view (2026-10-11): open items with difficulty
+
+Design direction: [DESIGN.md](DESIGN.md). Written directly rather than via `ce-plan`: the repo already has per-feature plans under `docs/plans/`, so this section only adds the missing fields to the open items.
+
+| Unit | When | Status | Difficulty | Feasibility | Simpler alternative |
+|---|---|---|---|---|---|
+| U1 AUR `omaseal-bin` (issue #12) | Now | blocked on registration | easy once open | AUR registration portal closed; human browser step | none; keep `install.sh` with pinned checksum |
+| U2 Replace emoji social card, refresh README header | Now | done in this PR (brand proposal) | easy | owner signs off the mark | keep `docs/assets/social.png` |
+| U3 Install docs versus releases: checked, `v0.4.0` release exists and is Latest, so the pin is correct | Now | verified, no action | easy | none | none |
+| U4 First-party Omarchy integration (`omarchy-secrets-*`, panel, menu) | Next | open | hard | depends on `omacom/omarchy-mac` maintainers accepting a PR | ship commands + menu only (the existing phased fallback) |
+| U5 BrowserOS resolves secret at request time | Next | deferred | medium | needs an `omarchy-browser` checkout | document the `omaseal run` pattern |
+| U6 Panel component extraction | Later | open | medium | `Panel.qml` is 1,220 lines; host relative-import rules unverified, no way to run QML outside Omarchy | split only the add form and row delegate |
+| U7 Different-uid policy daemon (confinement) | Later | research | hard | needs setuid or polkit brokering; large attack-surface change | state the same-uid limits plainly (already in README/ROADMAP) |
+| U8 Stable v1.0 API | Later | open | medium | needs third-party consumers | freeze `service/account` and IPC only |
+
+Simplification found: the engine carries two stores (Secret Service and native) plus `keyringmigrate.go` and `backendmigrate.go`; once the native store is the default and migration is done for existing users, the Secret Service path is the delete candidate. Not before U4's outcome is known — and not before migration verifies parity: `migrateItems` today skips a source key the native store already lists without comparing values, so "done" must mean read-and-compared equality for every addressable source item, not just presence.
+
+---
+
 ## Done
 
 - [x] `set/get/del/list/reveal` CLI on `gnome-keyring`

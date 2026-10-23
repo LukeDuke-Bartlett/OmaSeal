@@ -1,8 +1,13 @@
 # OmaSeal
 
 <p align="center">
-  <img src="docs/assets/social.png" alt="OmaSeal — system keyring for agents" width="640" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/wordmark-dark.svg">
+    <img alt="OmaSeal" src="assets/brand/wordmark.svg" width="280">
+  </picture>
 </p>
+
+<!-- Logo is a proposal (assets/brand/README.md); owner signs off. -->
 
 > One keyring for your Omarchy desktop, agents, and plugins.
 

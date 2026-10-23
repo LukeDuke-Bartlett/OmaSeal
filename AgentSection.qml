@@ -13,6 +13,7 @@ Column {
   property color fg
   property color dim
   property color accent
+  property color urgent
   property string fontFamily
 
   // keyCatcher blocks shortcuts while the passphrase field holds focus.
@@ -71,7 +72,7 @@ Column {
     visible: agentSection.status !== null && agentSection.status.agentMode === "ask" && !agentSection.status.fprintdAvailable
     width: parent.width
     text: "no fingerprint reader — unlock is ungated"
-    color: agentSection.dim
+    color: agentSection.urgent
     font.family: agentSection.fontFamily
     font.pixelSize: Style.font.caption
   }

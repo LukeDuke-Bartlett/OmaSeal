@@ -36,7 +36,7 @@ Panel {
 
   readonly property color fg: root.bar ? root.bar.foreground : Color.foreground
   readonly property color dim: Qt.darker(root.fg, 1.5)
-  readonly property color urgent: Color.urgent
+  readonly property color urgent: Color.urgent !== undefined ? Color.urgent : Color.accent
   readonly property color accent: Color.accent
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
   readonly property var barIdentity: root.hostWidget || root
@@ -412,6 +412,7 @@ Panel {
               fg: root.fg
               dim: root.dim
               accent: root.accent
+              urgent: root.urgent
               fontFamily: root.fontFamily
               onUnlockRequested: function(passphrase) { jobs.unlockAgent(passphrase) }
             }

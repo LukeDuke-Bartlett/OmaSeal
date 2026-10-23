@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img" aria-label="OmaSeal social card (proposal)">
+  <rect width="1280" height="640" fill="#0d1117"/>
+  <g transform="translate(96 200) scale(3.5)">
+  <rect x="4" y="4" width="56" height="56" rx="8" fill="none" stroke="#e8e6df" stroke-width="4"/>
+  <circle cx="32" cy="27" r="8" fill="#5eead4"/>
+  <polygon points="28,32 36,32 40,46 24,46" fill="#5eead4"/>
+  </g>
+  <text x="380" y="290" font-family="JetBrains Mono, DejaVu Sans Mono, Noto Sans Mono, monospace" font-size="88" font-weight="700" fill="#e8e6df">Oma<tspan fill="#5eead4">Seal</tspan></text>
+  <text x="380" y="350" font-family="JetBrains Mono, DejaVu Sans Mono, Noto Sans Mono, monospace" font-size="30" fill="#9aa0a6">A system keyring for agents.</text>
+  <text x="380" y="396" font-family="JetBrains Mono, DejaVu Sans Mono, Noto Sans Mono, monospace" font-size="30" fill="#9aa0a6">One service/account interface.</text>
+  <rect x="96" y="500" width="1088" height="64" fill="none" stroke="#9aa0a6" stroke-width="2"/>
+  <text x="120" y="541" font-family="JetBrains Mono, DejaVu Sans Mono, Noto Sans Mono, monospace" font-size="26" fill="#9aa0a6">omaseal get openrouter default</text>
+</svg>
