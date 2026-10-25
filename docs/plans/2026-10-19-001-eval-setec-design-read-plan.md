@@ -41,9 +41,19 @@ OmaSeal is local-first: `omaseal get/set` against a local keyring with a manifes
 
 - The notes doc lists every setec feature and maps it: have/need/want — no item left unevaluated.
 - The notes cite coverage of both `server.md` and `api.md` in full, not a skim of the README.
-- Every "borrow" row carries a concrete `if we add X it should look like their Y` pointer (file/doc/mechanism), per Requirement 4.
+- Every borrow-direction verdict — `need`, `need, translated`, `want`, `interesting` — carries a concrete "if we add X it should look like their Y" pointer (file, symbol, doc section, or protocol in the pinned source), per Requirement 4. `have` verdicts cite the OmaSeal mechanism instead; only a `n/a` verdict needs no pointer.
 - A reciprocal table lists OmaSeal capabilities setec lacks (e.g. manifest ALLOW/ASK/DENY, same-UID agent sessions), per Requirement 3.
 - Each verdict states the local-first reasoning honestly — a "not wanted" with rationale counts as evaluated, per Requirement 2 and the scope boundary that no architecture change is being adopted.
+
+## Implementation Units
+
+### Unit 1 — Read the pinned sources
+
+Fetch `server.md` and `api.md` from `tailscale/setec` at `bc168fdb23` (not moving `main`), plus the package sources they reference: `types/api/api.go`, `acl/acl.go`, `audit/audit.go`, `client/setec/{store,watcher,keyring}.go`, `db/kv.go`. Skim `tsidp@4047a40f7f` only for the identity/ACL half. Extract: secret versioning + activation semantics, ACL document shape, audit log fields, sealed bootstrap, update-delivery mechanism — with file/section pointers, not vibes.
+
+### Unit 2 — Write `docs/decisions/setec-design-notes.md`
+
+One table: every setec feature → `have / need / want` for OmaSeal, each with the local-first reasoning. Second table: OmaSeal capabilities setec lacks. Every `borrow` verdict carries a concrete "if we add X it should look like their Y" pointer. Close with a short "what this means for the different-UID daemon spike" section — that's the consumer of this read. Must satisfy all acceptance criteria.
 
 ## Repo Touchpoints
 
