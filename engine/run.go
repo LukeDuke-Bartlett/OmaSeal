@@ -124,6 +124,10 @@ func injectSecrets(env []string, bindings envBindings, resolve bool) ([]string, 
 			return nil, 1, fmt.Errorf("%s: cannot read %s/%s: %w", b.name, service, account, err)
 		}
 		env = append(env, b.name+"="+v)
+		// A flagged secret still injects — the child may need the old value
+		// to finish its work — but the stderr warning tells whoever watches
+		// the logs to rotate it.
+		warnIfFlagged(service, account)
 	}
 	return env, 0, nil
 }

@@ -46,6 +46,8 @@ Usage:
   omaseal get <service> <account>          print stored secret
   omaseal reveal <service> <account>       print secret after user-presence gate
   omaseal del <service> <account>          delete stored secret
+  omaseal flag <service> <account> [why]   mark a secret for rotation (leaked, stale)
+  omaseal unflag <service> <account>       clear a rotation flag (set also clears it)
   omaseal list [service] [--json] [--sort=used|recent|name]
                                            list stored secrets (optionally sorted)
   omaseal stats [--json]                   display access analytics & usage leaderboard
@@ -146,6 +148,10 @@ func main() {
 		handleReveal()
 	case "del", "delete":
 		handleDel()
+	case "flag":
+		handleFlag()
+	case "unflag":
+		handleUnflag()
 	case "list":
 		handleList()
 	case "stats", "analytics":
@@ -225,6 +231,11 @@ func handleSet() {
 		printError("storing secret: ", err)
 		os.Exit(1)
 	}
+	// Storing a new value completes the rotation — the stale flag would keep
+	// warning every read surface about a credential that no longer exists.
+	if err := UnflagRotation(service, account); err != nil {
+		WriteLog("set %s/%s: flag clear failed: %v", service, account, err)
+	}
 	WriteLog("set %s/%s", service, account)
 	fmt.Println("ok")
 }
@@ -244,7 +255,66 @@ func handleGet() {
 		os.Exit(1)
 	}
 	WriteLog("get %s/%s", service, account)
+	warnIfFlagged(service, account)
 	fmt.Print(secret)
+}
+
+// handleFlag marks a secret as needing rotation. The optional trailing
+// argument is a free-text reason ("leaked into transcript", "file deleted")
+// recorded with the flag — never a secret value.
+func handleFlag() {
+	var positionals []string
+	for _, a := range os.Args[2:] {
+		if strings.HasPrefix(a, "-") {
+			fmt.Fprintln(os.Stderr, "error: unknown flag:", a)
+			os.Exit(1)
+		}
+		positionals = append(positionals, a)
+	}
+	if len(positionals) < 2 {
+		fmt.Fprintln(os.Stderr, "error: want <service> <account> [reason]")
+		usage()
+		os.Exit(1)
+	}
+	reason := ""
+	if len(positionals) > 2 {
+		reason = strings.Join(positionals[2:], " ")
+	}
+	service, account, err := argCredentialsLoose(positionals[:2])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		usage()
+		os.Exit(1)
+	}
+	start := time.Now()
+	err = FlagRotation(service, account, reason, "cli")
+	logOpResult("flag", service+"/"+account, start, err)
+	if err != nil {
+		printError("flagging secret: ", err)
+		os.Exit(1)
+	}
+	WriteLog("flag %s/%s", service, account)
+	fmt.Println("ok")
+}
+
+// handleUnflag clears a rotation flag without storing a new value — for
+// flags set in error, or ones the user cleared at the provider instead.
+func handleUnflag() {
+	service, account, err := argCredentialsLoose(os.Args[2:])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		usage()
+		os.Exit(1)
+	}
+	start := time.Now()
+	err = UnflagRotation(service, account)
+	logOpResult("unflag", service+"/"+account, start, err)
+	if err != nil {
+		printError("unflagging secret: ", err)
+		os.Exit(1)
+	}
+	WriteLog("unflag %s/%s", service, account)
+	fmt.Println("ok")
 }
 
 func handleDel() {
@@ -319,15 +389,25 @@ func handleList() {
 			if it.LastAccessed != nil {
 				last = it.LastAccessed.Format("2006-01-02 15:04:05")
 			}
-			fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n", sanitizeField(it.Service), sanitizeField(it.Account), it.AccessCount, last, sanitizeField(it.Label))
+			fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n", sanitizeField(it.Service), sanitizeField(it.Account), it.AccessCount, last, sanitizeField(flagMarker(it)+it.Label))
 		}
 	} else {
 		fmt.Fprintln(w, "SERVICE\tACCOUNT\tLABEL")
 		for _, it := range items {
-			fmt.Fprintf(w, "%s\t%s\t%s\n", sanitizeField(it.Service), sanitizeField(it.Account), sanitizeField(it.Label))
+			fmt.Fprintf(w, "%s\t%s\t%s\n", sanitizeField(it.Service), sanitizeField(it.Account), sanitizeField(flagMarker(it)+it.Label))
 		}
 	}
 	w.Flush()
+}
+
+// flagMarker prefixes the list label of a flagged secret so the alert is
+// visible wherever the name is — including MCP/IPC list output that renders
+// the same Item structs.
+func flagMarker(it Item) string {
+	if !it.RotationFlagged {
+		return ""
+	}
+	return "[ROTATE] "
 }
 
 func handleReveal() {
@@ -350,6 +430,7 @@ func handleReveal() {
 		os.Exit(1)
 	}
 	WriteLog("reveal %s/%s", service, account)
+	warnIfFlagged(service, account)
 	fmt.Print(secret)
 }
 
@@ -379,6 +460,7 @@ func handleResolve() {
 		os.Exit(1)
 	}
 	WriteLog("resolve %s/%s", service, account)
+	warnIfFlagged(service, account)
 	fmt.Print(secret)
 }
 

@@ -117,6 +117,8 @@ const mcpInstructions = `OmaSeal is the system keyring on this Omarchy machine �
 	`omaseal_list returns service/account metadata only (no values) and is safe for discovering what is stored. ` +
 	`A stored omaseal://<service>/<account> reference may be passed verbatim in the service field of any tool. ` +
 	`omaseal_stats reports per-secret access counts so you can find the credential the user means by its usage. ` +
+	`When you discover a stored credential has leaked (printed to a log, committed to a file, left in a transcript), ` +
+	`call omaseal_flag to mark it for rotation — every later read then carries a warning until it is replaced with omaseal_set. ` +
 	`Per-secret access is governed by ~/.config/omaseal/ai-manifest.txt: ALLOW secrets read freely, ` +
 	`ASK secrets need an unlocked session, DENY secrets are refused with code manifest_denied. ` +
 	`If a call fails with code agent_unauthorized, tell the user to run "omaseal agent unlock"; ` +
@@ -205,6 +207,28 @@ var mcpToolsResult = map[string]any{
 			},
 		},
 		{
+			"name":        "omaseal_flag",
+			"description": "Mark a stored secret for rotation and attach a note. Use when you discover a credential has leaked — printed to a log, committed to a repo or file, left in a transcript, or exposed another way. The secret still reads normally, but every later get/resolve/list surface carries a warning until the value is replaced with omaseal_set (which clears the flag) or the flag is removed with omaseal_unflag.",
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"service": map[string]string{"type": "string"},
+					"account": map[string]string{"type": "string"},
+					"reason":  map[string]string{"type": "string"},
+				},
+				"required": []string{"service"},
+			},
+		},
+		{
+			"name":        "omaseal_unflag",
+			"description": "Clear the rotation flag on a stored secret without changing its value. Use when the flag was set in error or the credential was rotated outside omaseal.",
+			"inputSchema": map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"service": map[string]string{"type": "string"}, "account": map[string]string{"type": "string"}},
+				"required":   []string{"service"},
+			},
+		},
+		{
 			"name":        "omaseal_stats",
 			"description": "Report keyring usage analytics: total accesses and per-secret access counts/last-accessed times, most-used first. Metadata only; no secret values.",
 			"inputSchema": map[string]any{
@@ -246,6 +270,8 @@ func toolOperation(name string) string {
 		return "set"
 	case "omaseal_delete":
 		return "delete"
+	case "omaseal_flag", "omaseal_unflag":
+		return "set"
 	case "omaseal_list", "omaseal_stats":
 		return "list"
 	}
@@ -351,6 +377,9 @@ func callMCPTool(req mcpToolCall) *mcpResponse {
 		}
 		WriteLog("access %s/%s", service, account)
 		r.Content = append(r.Content, map[string]any{"type": "text", "text": v})
+		if w := rotationWarning(service, account); w != "" {
+			r.Content = append(r.Content, map[string]any{"type": "text", "text": w})
+		}
 
 	case "omaseal_resolve":
 		var a struct {
@@ -373,6 +402,9 @@ func callMCPTool(req mcpToolCall) *mcpResponse {
 		}
 		WriteLog("access %s/%s", service, account)
 		r.Content = append(r.Content, map[string]any{"type": "text", "text": v})
+		if w := rotationWarning(service, account); w != "" {
+			r.Content = append(r.Content, map[string]any{"type": "text", "text": w})
+		}
 
 	case "omaseal_set":
 		var a struct {
@@ -394,6 +426,10 @@ func callMCPTool(req mcpToolCall) *mcpResponse {
 		}
 		if err := storeSet(service, account, a.Secret); err != nil {
 			return toolErrorResp(req, err)
+		}
+		// A stored new value completes the rotation — drop a stale flag.
+		if err := UnflagRotation(service, account); err != nil {
+			WriteLog("mcp set %s/%s: flag clear failed: %v", service, account, err)
 		}
 		r.Content = append(r.Content, map[string]any{"type": "text", "text": "ok"})
 
@@ -475,6 +511,49 @@ func callMCPTool(req mcpToolCall) *mcpResponse {
 			return toolErrorResp(req, err)
 		}
 		r.Content = append(r.Content, map[string]any{"type": "text", "text": string(b)})
+
+	case "omaseal_flag":
+		var a struct {
+			Service string `json:"service"`
+			Account string `json:"account"`
+			Reason  string `json:"reason"`
+		}
+		if err := json.Unmarshal(req.Arguments, &a); err != nil {
+			return errResp(req, err)
+		}
+		service, account, err := refAwareCredentials(a.Service, a.Account, false)
+		if err != nil {
+			return toolErrorResp(req, err)
+		}
+		if err := checkManifestPolicy(service, account); err != nil {
+			return toolErrorResp(req, err)
+		}
+		if err := FlagRotation(service, account, a.Reason, "agent"); err != nil {
+			return toolErrorResp(req, err)
+		}
+		WriteLog("mcp flag %s/%s", service, account)
+		r.Content = append(r.Content, map[string]any{"type": "text", "text": "ok"})
+
+	case "omaseal_unflag":
+		var a struct {
+			Service string `json:"service"`
+			Account string `json:"account"`
+		}
+		if err := json.Unmarshal(req.Arguments, &a); err != nil {
+			return errResp(req, err)
+		}
+		service, account, err := refAwareCredentials(a.Service, a.Account, false)
+		if err != nil {
+			return toolErrorResp(req, err)
+		}
+		if err := checkManifestPolicy(service, account); err != nil {
+			return toolErrorResp(req, err)
+		}
+		if err := UnflagRotation(service, account); err != nil {
+			return toolErrorResp(req, err)
+		}
+		WriteLog("mcp unflag %s/%s", service, account)
+		r.Content = append(r.Content, map[string]any{"type": "text", "text": "ok"})
 
 	case "omaseal_stats":
 		statsMap, err := ParseAccessLogs()
