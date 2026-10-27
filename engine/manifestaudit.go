@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"text/tabwriter"
 	"time"
+
+	"github.com/duketopceo/OmaSeal/engine/ui"
 )
 
 // staleThresholdDays bounds the "stale" lint: items whose last recorded read is
@@ -328,12 +329,11 @@ func handleManifestAudit(args []string, jsonOut bool) {
 	fmt.Printf("manifest audit: %d rules over %d items — %d dead_rule / %d uncovered / %d stale / %d advisory\n\n",
 		len(m.Rules), len(items), counts["dead_rule"], counts["uncovered"], counts["stale"], counts["advisory"])
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "KIND\tTARGET\tDETAIL")
+	rows := make([][]string, 0, len(findings))
 	for _, f := range findings {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", f.Kind, sanitizeField(f.Target), sanitizeField(f.Detail))
+		rows = append(rows, []string{f.Kind, sanitizeField(f.Target), sanitizeField(f.Detail)})
 	}
-	w.Flush()
+	ui.Table(os.Stdout, 2, []string{"KIND", "TARGET", "DETAIL"}, rows)
 }
 
 // flagValue returns the value after "--flag <value>" or "--flag=value".

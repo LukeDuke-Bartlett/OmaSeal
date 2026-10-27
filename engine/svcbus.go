@@ -70,7 +70,7 @@ func svcConnect(address string) (*dbus.Conn, error) {
 		address = os.Getenv("DBUS_SESSION_BUS_ADDRESS")
 	}
 	if address == "" {
-		return nil, errors.New("no session bus address")
+		return nil, errors.New("no session bus address (DBUS_SESSION_BUS_ADDRESS is unset — run from a desktop session, or under `dbus-run-session`)")
 	}
 	conn, err := dbus.Connect(address)
 	if err != nil {

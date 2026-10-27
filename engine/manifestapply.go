@@ -333,7 +333,7 @@ func handleManifestApply(args []string, yes bool) {
 	} else {
 		for i, c := range p.Changes {
 			if expanding[i] {
-				if confirmExplicit(fmt.Sprintf("apply expansion %d: %s %s %s? [y/N] ", i+1, c.Action, strings.ToUpper(c.Policy), c.Pattern)) {
+				if confirmExplicit(fmt.Sprintf("apply expansion %d: %s %s %s?", i+1, c.Action, strings.ToUpper(c.Policy), c.Pattern)) {
 					acceptedExp = append(acceptedExp, c)
 				} else {
 					skipped = append(skipped, c)
@@ -342,7 +342,7 @@ func handleManifestApply(args []string, yes bool) {
 				accepted = append(accepted, c)
 			}
 		}
-		if len(accepted) > 0 && !confirm(fmt.Sprintf("Apply %d non-expanding change(s)? [Y/n] ", len(accepted))) {
+		if len(accepted) > 0 && !confirm(fmt.Sprintf("Apply %d non-expanding change(s)?", len(accepted))) {
 			accepted = nil
 		}
 	}

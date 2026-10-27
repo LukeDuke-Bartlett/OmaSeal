@@ -157,7 +157,7 @@ func maybeOfferJev(yes bool) {
 		fmt.Fprintln(os.Stderr, "Unattended setup does not enable Jev. Run `omaseal jev enable` to opt in.")
 		return
 	}
-	if confirmExplicit("Enable Jev? [y/N] ") {
+	if confirmExplicit("Enable Jev?") {
 		// Same bar as `jev enable`: a pty-typed "yes" is not presence.
 		if err := requirePresenceStrict(context.Background(), "enable Jev metadata sharing", "edit "+jevStatePath()+" directly"); err != nil {
 			fmt.Fprintf(os.Stderr, "  jev not enabled: %v\n", err)
@@ -179,20 +179,10 @@ func maybeOfferJev(yes bool) {
 	fmt.Fprintln(os.Stderr, "  jev: staying disabled (won't ask again — `omaseal jev enable` opts in)")
 }
 
-// confirmExplicit accepts only an explicit y/yes — unlike confirm, an empty
-// answer declines. Used where opt-in consent must be affirmative.
-func confirmExplicit(prompt string) bool {
-	fmt.Fprint(os.Stderr, prompt)
-	text, err := setupReader.ReadString('\n')
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "  could not read response: %v\n", err)
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(text)) {
-	case "y", "yes":
-		return true
-	}
-	return false
+// confirmExplicit is confirm: both now accept only an explicit yes. Kept as a
+// separate name where opt-in consent must read as deliberate at the call site.
+func confirmExplicit(question string) bool {
+	return confirm(question)
 }
 
 // checkJev is an informational doctor line: always optional, fails only when

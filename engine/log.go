@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	"github.com/duketopceo/OmaSeal/engine/ui"
 )
 
 var (
@@ -63,8 +65,16 @@ func initLog() {
 	// The file half of the writer is hash-chained (engine/chain.go): each
 	// line carries the sha256 of its predecessor's chain value + content, so
 	// mid-history edits break `omaseal logs verify`. stderr stays unchained.
-	logWriter = io.MultiWriter(os.Stderr,
-		newChainWriter(logFile, logFilePath, filepath.Join(dir, "omaseal.chain")))
+	chained := newChainWriter(logFile, logFilePath, filepath.Join(dir, "omaseal.chain"))
+	// The stderr mirror is for pipes and captured output. On an interactive
+	// terminal it only interleaves timestamped audit lines with the command's
+	// own output, so it is dropped there; the file copy is unchanged.
+	// OMASEAL_LOG_STDERR=1 brings the mirror back.
+	if ui.Fancy(os.Stderr) && os.Getenv("OMASEAL_LOG_STDERR") != "1" {
+		logWriter = chained
+		return
+	}
+	logWriter = io.MultiWriter(os.Stderr, chained)
 }
 
 // truncateLogIfLarge keeps only the newest half of the log once it passes

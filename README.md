@@ -134,6 +134,33 @@ See [`docs/onboarding.md`](docs/onboarding.md) for wiring OmaSeal into agents an
 
 ## CLI
 
+![omaseal demo](docs/demo/omaseal.gif)
+
+`omaseal --help` shows the whole tree, grouped. The short version:
+
+| Group | Commands |
+| --- | --- |
+| Secrets | `set` (`--ask` for a popup), `get` (`--reveal` gated, `--resolve` via 1Password/Bitwarden), `ls`, `rm`, `run`, `sudo` |
+| Agents | `agent mode\|unlock\|lock\|status\|keepalive\|primary\|defaults`, `mcp serve\|install\|status`, `policy show\|init\|check\|path\|audit\|apply` |
+| Health | `doctor` (`doctor setup\|selftest\|ping`), `stats`, `logs` (`verify`, `seal`) |
+| Setup | `import 1password\|bitwarden\|secretservice`, `keyring status\|migrate`, `provider serve\|status\|enable\|disable` |
+
+Every earlier name still works as a hidden alias for one release —
+`list`, `del`, `delete`, `reveal`, `resolve`, `ask-save`, `manifest`, `robots`,
+`analytics`, `setup`, `selftest`, `ping`, `migrate`, `mcp install-all`,
+`mcp install-detected`, `version`, `-v` — and `ipc`, `jev` and `clipclear` stay
+as hidden plumbing. Scripts, the Quickshell panel and MCP clients keep working
+unchanged.
+
+Output rules: secret values are always printed raw to stdout, never decorated.
+Pretty output (status marks, tables, the banner, confirm prompts) appears only
+on an interactive terminal; anything piped, redirected or captured gets the same
+plain text as before, and `--json`, `ipc` and MCP stdio are never touched. On a
+terminal the log lines that used to mirror to stderr are left to the log file
+(`OMASEAL_LOG_STDERR=1` brings them back). `NO_COLOR` and `TERM=dumb` switch
+colour off. Confirmations default to **No**; `-y`/`--yes` skips them.
+
+
 ```sh
 # Store (secret is read from a hidden prompt or a file; never pass it as an argument)
 omaseal set openrouter default
@@ -339,10 +366,13 @@ Supported agents and the config each one actually reads:
 | `devin` | `~/.config/devin/mcp_config.json` | `.devin/mcp_config.json` |
 | `opencode` | `~/.config/opencode/opencode.json` | `opencode.json` |
 | `agy` (`antigravity`) | `~/.agy/mcp.json` | `.agy/mcp.json` |
-| `hermes` | `~/.hermes/mcp.json` | `.hermes/mcp.json` |
+| `hermes` | `~/.hermes/config.yaml` (`mcp_servers:`) | — (Hermes has no repo-local MCP config) |
 
-Existing servers and unrelated top-level keys are preserved; `install-*`
-commands only add or replace the `omaseal` entry.
+Existing servers and unrelated top-level keys are preserved; `mcp install`
+only adds or replaces the `omaseal` entry. Hermes reads MCP servers from the
+`mcp_servers:` mapping in `~/.hermes/config.yaml` and does **not** load
+`~/.hermes/mcp.json`; `mcp install hermes` edits that mapping in place and
+leaves comments and every other setting untouched.
 
 Tools: `omaseal_get`, `omaseal_resolve`, `omaseal_set`,
 `omaseal_ask_save`, `omaseal_delete`, `omaseal_list`. The server also returns `instructions` at

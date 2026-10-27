@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/duketopceo/OmaSeal/engine/ui"
 )
 
 // runSetup is the guided onboarding path: verify the environment, show which
@@ -21,12 +23,17 @@ import (
 func runSetup() {
 	yes := hasFlag(os.Args, "--yes") || hasFlag(os.Args, "-y")
 
+	ui.Banner(os.Stderr, version, target())
 	fmt.Fprintln(os.Stderr, "Running doctor first...")
 	results := doctorChecks()
 	printDoctorResults(results)
 
 	fmt.Fprintln(os.Stderr)
-	fmt.Fprintln(os.Stderr, "=== Agents ===")
+	if ui.Fancy(os.Stderr) {
+		ui.Heading(os.Stderr, "Agents")
+	} else {
+		fmt.Fprintln(os.Stderr, "=== Agents ===")
+	}
 	rows := mcpStatusRows()
 	detected := []mcpAgentStatus{}
 	for _, r := range rows {
@@ -127,7 +134,7 @@ func runSetup() {
 }
 
 // maybeInstallDetected wires OmaSeal into every detected agent that does not
-// already have it. On a TTY it asks once ([Y/n]); with --yes it just does it.
+// already have it. On a TTY it asks once (default: no); with --yes it just does it.
 func maybeInstallDetected(detected []mcpAgentStatus, yes bool) {
 	todo := []string{}
 	for _, r := range detected {
@@ -140,7 +147,7 @@ func maybeInstallDetected(detected []mcpAgentStatus, yes bool) {
 	}
 
 	fmt.Fprintln(os.Stderr)
-	if !yes && !confirm(fmt.Sprintf("Install OmaSeal MCP for detected agents (%s)? [Y/n] ", strings.Join(todo, ", "))) {
+	if !yes && !confirm(fmt.Sprintf("Install OmaSeal MCP for detected agents (%s)?", strings.Join(todo, ", "))) {
 		return
 	}
 	// Report failures but keep going — setup continues to primary-agent
@@ -210,7 +217,7 @@ func maybeOfferClaudeKeyHelper(detected []mcpAgentStatus, yes bool) {
 	fmt.Fprintln(os.Stderr)
 	fmt.Fprintf(os.Stderr, "  claude detected: apiKeyHelper can read your API key via\n    %q\n", helper)
 	fmt.Fprintf(os.Stderr, "    (reads anthropic/%s — the key never touches a file)\n", items[0].Account)
-	if yes || !confirm("Set claude apiKeyHelper to that helper in ~/.claude/settings.json? [y/N] ") {
+	if yes || !confirm("Set claude apiKeyHelper to that helper in ~/.claude/settings.json?") {
 		if yes {
 			fmt.Fprintln(os.Stderr, "  skipped under --yes: add `\"apiKeyHelper\": \""+helper+"\"` to ~/.claude/settings.json to enable")
 		}
@@ -234,19 +241,10 @@ func maybeOfferClaudeKeyHelper(detected []mcpAgentStatus, yes bool) {
 // not lost to the next.
 var setupReader = bufio.NewReader(os.Stdin)
 
-// confirm asks once on stdin; empty, y, and yes accept, anything else declines.
-func confirm(prompt string) bool {
-	fmt.Fprint(os.Stderr, prompt)
-	text, err := setupReader.ReadString('\n')
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "  could not read response: %v\n", err)
-		return false
-	}
-	switch strings.ToLower(strings.TrimSpace(text)) {
-	case "", "y", "yes":
-		return true
-	}
-	return false
+// confirm asks once and returns true only on an explicit yes — the default
+// answer is No. See ui.Confirm for the interactive and piped paths.
+func confirm(question string) bool {
+	return ui.Confirm(question, setupReader)
 }
 
 // maybeSetPrimary suggests a primary agent when none is configured. On a TTY
@@ -267,7 +265,7 @@ func maybeSetPrimary(rows []mcpAgentStatus, p AgentPolicy, yes bool) {
 	}
 
 	fmt.Fprintln(os.Stderr)
-	if !yes && !confirm(fmt.Sprintf("Set %s as your primary agent? [Y/n] ", firstDetected)) {
+	if !yes && !confirm(fmt.Sprintf("Set %s as your primary agent?", firstDetected)) {
 		return
 	}
 	if err := SetPrimaryAgent(firstDetected); err != nil {

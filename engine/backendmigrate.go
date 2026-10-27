@@ -182,7 +182,7 @@ func handleMigrate(args []string) {
 			return
 		}
 		fmt.Fprintf(os.Stderr, "Will copy %d secrets from Secret Service into the native store (%d already present).\nThe source keyring is never modified — rollback is `backend: secretservice`.\n", res.Migrated, res.Skipped)
-		if !confirm("Proceed? [Y/n] ") {
+		if !confirm("Proceed?") {
 			fmt.Fprintln(os.Stderr, "aborted")
 			return
 		}

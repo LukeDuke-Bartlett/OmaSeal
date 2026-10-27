@@ -38,7 +38,7 @@ to `.gitignore`, no shell-env dependency.
 | Devin (local) | `~/.config/devin/mcp_config.json` | `env` literals | `omaseal run`; cloud Devin can't see your keyring — use platform secrets there |
 | OpenCode | `~/.config/opencode/opencode.json` | `{env:NAME}` interpolation | `omaseal run` in `command` |
 | Antigravity (`agy`) | `~/.agy/mcp.json` (also reads Gemini-family `~/.gemini/config/mcp_config.json`) | `env` literals | `omaseal run` |
-| Hermes | `~/.hermes/config.yaml` `mcp_servers:` (canonical; `~/.hermes/mcp.json` also read) | `env` literals | `omaseal run` |
+| Hermes | `~/.hermes/config.yaml` `mcp_servers:` (the only place Hermes loads MCP servers from; `~/.hermes/mcp.json` is not read) | `env` literals | `omaseal run` |
 
 ### Example: a GitHub MCP server, wired the OmaSeal way
 

@@ -13,12 +13,15 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/duketopceo/OmaSeal/engine/ui"
 )
 
 // Config merge strategies for agentSpec.format.
 const (
 	formatJSON      = "json"
 	formatCodexTOML = "toml-codex"
+	formatHermesYML = "yaml-hermes"
 )
 
 // agentSpec describes where one agent reads its MCP server configuration and
@@ -37,7 +40,8 @@ type agentSpec struct {
 	// Empty means the agent has no repo-local config surface.
 	projectPath string
 	// format selects the merge strategy: formatJSON merges a servers object,
-	// formatCodexTOML appends a [mcp_servers.omaseal] table.
+	// formatCodexTOML appends a [mcp_servers.omaseal] table, formatHermesYML
+	// edits the mcp_servers mapping of Hermes's config.yaml.
 	format string
 	// serversKey is the top-level JSON key holding the server map.
 	serversKey string
@@ -139,14 +143,13 @@ var agentSpecs = []agentSpec{
 		fit:         "wrap MCP env in `omaseal run -e K=svc/acct --`",
 	},
 	{
-		name:        "hermes",
-		dirs:        []string{".hermes"},
-		bins:        []string{"hermes"},
-		globalPath:  filepath.Join(".hermes", "mcp.json"),
-		projectPath: filepath.Join(".hermes", "mcp.json"),
-		format:      formatJSON,
-		serversKey:  "mcpServers",
-		entry:       stdioEntry,
+		name:       "hermes",
+		dirs:       []string{".hermes"},
+		bins:       []string{"hermes"},
+		globalPath: filepath.Join(".hermes", "config.yaml"),
+		// Hermes has no repo-local MCP config, and it never reads mcp.json.
+		projectPath: "",
+		format:      formatHermesYML,
 		fit:         "wrap MCP env in `omaseal run -e K=svc/acct --`",
 	},
 }
@@ -383,15 +386,17 @@ func handleMCPStatus() {
 		fmt.Println(string(b))
 		return
 	}
-	fmt.Printf("%-10s %-9s %-9s %-7s %s\n", "AGENT", "DETECTED", "INSTALLED", "ROLE", "CONFIG")
-	for _, r := range rows {
-		role := ""
-		if r.Primary {
-			role = "primary"
-		} else if r.Default {
-			role = "default"
+	if ui.Fancy(os.Stdout) {
+		trows := make([][]string, 0, len(rows))
+		for _, r := range rows {
+			trows = append(trows, []string{r.Name, yesNo(r.Detected), yesNo(r.Installed), mcpRole(r), r.Config})
 		}
-		fmt.Printf("%-10s %-9s %-9s %-7s %s\n", r.Name, yesNo(r.Detected), yesNo(r.Installed), role, r.Config)
+		ui.Table(os.Stdout, 2, []string{"AGENT", "DETECTED", "INSTALLED", "ROLE", "CONFIG"}, trows)
+	} else {
+		fmt.Printf("%-10s %-9s %-9s %-7s %s\n", "AGENT", "DETECTED", "INSTALLED", "ROLE", "CONFIG")
+		for _, r := range rows {
+			fmt.Printf("%-10s %-9s %-9s %-7s %s\n", r.Name, yesNo(r.Detected), yesNo(r.Installed), mcpRole(r), r.Config)
+		}
 	}
 	printed := false
 	for _, r := range rows {
@@ -403,6 +408,16 @@ func handleMCPStatus() {
 			fmt.Printf("  %-10s %s\n", r.Name, r.Fit)
 		}
 	}
+}
+
+func mcpRole(r mcpAgentStatus) string {
+	switch {
+	case r.Primary:
+		return "primary"
+	case r.Default:
+		return "default"
+	}
+	return ""
 }
 
 func yesNo(b bool) string {
@@ -421,6 +436,9 @@ func mcpInstalledAt(s agentSpec, path string) bool {
 	}
 	if s.format == formatCodexTOML {
 		return codexMCPRe.MatchString(string(data))
+	}
+	if s.format == formatHermesYML {
+		return hermesHasOmaseal(string(data))
 	}
 	var cfg map[string]json.RawMessage
 	if err := json.Unmarshal(data, &cfg); err != nil {
@@ -456,6 +474,13 @@ func installMCP(agent, dir string) (string, error) {
 
 	if spec.format == formatCodexTOML {
 		if err := mergeCodexTOML(configPath, self); err != nil {
+			return "", err
+		}
+		return configPath, nil
+	}
+
+	if spec.format == formatHermesYML {
+		if err := mergeHermesYAML(configPath, self); err != nil {
 			return "", err
 		}
 		return configPath, nil

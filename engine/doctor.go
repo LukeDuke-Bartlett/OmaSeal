@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/duketopceo/OmaSeal/engine/ui"
 )
 
 type checkResult struct {
@@ -114,6 +116,15 @@ func printDoctorResults(results []checkResult) bool {
 				ok = false
 			}
 		}
+		if ui.Fancy(os.Stderr) {
+			fmt.Fprintf(os.Stderr, "%s %s\n", ui.Mark(os.Stderr, mark), r.name)
+			if r.message != "" {
+				for _, line := range strings.Split(r.message, "\n") {
+					fmt.Fprintf(os.Stderr, "  %s\n", ui.Dim(os.Stderr, line))
+				}
+			}
+			continue
+		}
 		fmt.Fprintf(os.Stderr, "%-18s %s\n", mark, r.name)
 		if r.message != "" {
 			for _, line := range strings.Split(r.message, "\n") {
@@ -125,11 +136,23 @@ func printDoctorResults(results []checkResult) bool {
 }
 
 func runDoctor() {
+	ui.Banner(os.Stderr, version, target())
 	results := doctorChecks()
 	ok := printDoctorResults(results)
 	if !ok {
-		fmt.Fprintln(os.Stderr, "\nSome required checks failed. Run `omaseal setup` for next steps.")
+		if ui.Fancy(os.Stderr) {
+			fmt.Fprintln(os.Stderr)
+			ui.Fail("some required checks failed")
+			ui.Hint("run `omaseal doctor setup` for next steps")
+		} else {
+			fmt.Fprintln(os.Stderr, "\nSome required checks failed. Run `omaseal setup` for next steps.")
+		}
 		os.Exit(1)
+	}
+	if ui.Fancy(os.Stderr) {
+		fmt.Fprintln(os.Stderr)
+		ui.OK("all required checks passed — OmaSeal is ready to use")
+		return
 	}
 	fmt.Fprintln(os.Stderr, "\nAll required checks passed. OmaSeal is ready to use.")
 }

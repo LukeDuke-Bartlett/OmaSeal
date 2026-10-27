@@ -10,9 +10,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 	"time"
 
+	"charm.land/fang/v2"
+	"github.com/duketopceo/OmaSeal/engine/ui"
 	"golang.org/x/term"
 )
 
@@ -35,83 +36,59 @@ func logOpResult(op, target string, start time.Time, err error) {
 		time.Since(start).Milliseconds(), result, codeFromError(err))
 }
 
-func usage() {
-	fmt.Fprint(os.Stderr, `omaseal — system keyring for Omarchy
+// invokedVerb is the first word the user typed, for the audit-log line.
+var invokedVerb string
 
-Usage:
-  omaseal set <service> <account>          store secret from stdin
-  omaseal ask-save <service> <account>     popup the user for a secret, then
-                                           store it — for agents; the value
-                                           never passes through the caller
-  omaseal get <service> <account>          print stored secret
-  omaseal reveal <service> <account>       print secret after user-presence gate
-  omaseal del <service> <account>          delete stored secret
-  omaseal flag <service> <account> [why]   mark a secret for rotation (leaked, stale)
-  omaseal unflag <service> <account>       clear a rotation flag (set also clears it)
-  omaseal list [service] [--json] [--sort=used|recent|name]
-                                           list stored secrets (optionally sorted)
-  omaseal stats [--json]                   display access analytics & usage leaderboard
-  omaseal manifest [show|init|check|path|audit|apply <file>]  AI agent access policy
-  omaseal jev [status|enable|disable]      optional Jev decision layer (off by default)
-  omaseal resolve <service> <account>      resolve + cache from keyring/op/bw/prompt
-  omaseal run -e NAME=svc/acct -- <cmd>    launch a command with secrets injected into its env
-  omaseal sudo [-r svc/acct] -- <cmd>      feed your sudo password after a presence check
-  omaseal import 1password [vault]         import all 1Password items
-  omaseal import bitwarden                 import all Bitwarden items
-  omaseal migrate [--dry-run] [-y]         copy every Secret Service item into the native store
-  omaseal mcp                              start MCP stdio server
-  omaseal mcp install <agent> [--dir .]    write mcp config for one agent
-  omaseal mcp install-detected             wire every detected + assigned agent
-  omaseal mcp install-all                  write mcp config for every known agent
-  omaseal mcp status [--json]              show detected/installed agent configs
-  omaseal ipc <method> <json-args>         JSON IPC for other plugins
-  omaseal ping                             health check (json with --json)
-  omaseal selftest                         keyring round-trip test
-  omaseal doctor                           check the environment and dependencies
-  omaseal logs [n]                         show recent non-secret log lines
-  omaseal logs verify [--anchor <file>]    check the log's hash chain for tampering
-  omaseal logs seal <file>                 anchor the current chain head to a file
-  omaseal setup [--yes]                    onboarding: doctor + agent wiring
-  omaseal agent mode <open|ask|lock> [min] [--ungated] set agent/MCP trust mode
-  omaseal agent unlock                     user-presence unlock for ask mode
-      --passphrase-stdin                   native backend: read the store passphrase
-                                           from stdin (panels, launchers) — the
-                                           passphrase itself is the presence proof
-  omaseal agent lock                       revoke agent session
-  omaseal agent status [--json]            show agent policy and session
-  omaseal agent keepalive [on|off]         session renews on activity (ask mode)
-  omaseal agent primary <name>             set your main agent
-  omaseal agent defaults [names...|--clear] set assigned default agents
-  omaseal provider serve                   run the Secret Service provider daemon
-  omaseal provider status                  show org.freedesktop.secrets ownership
-  omaseal provider enable|disable          install/remove bus activation files
+// legacyAliasGroups are spellings the legacy dispatcher treats as one handler.
+var legacyAliasGroups = [][]string{
+	{"del", "delete"},
+	{"stats", "analytics"},
+	{"manifest", "robots"},
+	{"version", "--version", "-v"},
+}
 
-References:
-  Everywhere <service> <account> is accepted, a single omaseal://<service>/<account>
-  reference works too; the account may contain '/' (e.g. omaseal://browseros/
-  openrouter-work/apiKey). 'omaseal list' accepts omaseal://<service>[/].
-
-Examples:
-  omaseal set openrouter default < secret.txt
-  omaseal get openrouter default
-  omaseal get omaseal://openrouter/default
-  omaseal reveal openrouter default
-  omaseal del openrouter default
-  omaseal list --sort=used
-  omaseal list omaseal://browseros/
-  omaseal stats
-  omaseal manifest
-  omaseal manifest check openrouter default
-  omaseal resolve openrouter default
-  omaseal resolve omaseal://browseros/openrouter-work/apiKey
-  omaseal import 1password pace-dev
-  omaseal ipc ping '{}'
-  omaseal ipc get '{"service":"openrouter","account":"default"}'
-`)
+func sameHandler(a, b string) bool {
+	if a == b {
+		return a != ""
+	}
+	for _, g := range legacyAliasGroups {
+		var ia, ib bool
+		for _, v := range g {
+			ia = ia || v == a
+			ib = ib || v == b
+		}
+		if ia && ib {
+			return true
+		}
+	}
+	return false
 }
 
 func main() {
 	SetLogOutput()
+
+	// `--version` / `-v` keep their exact historic output and exit path.
+	if len(os.Args) == 2 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		runLegacy([]string{os.Args[1]})
+		return
+	}
+
+	if len(os.Args) >= 2 {
+		invokedVerb = os.Args[1]
+	}
+	root := newRootCmd()
+	err := fang.Execute(context.Background(), root,
+		fang.WithVersion(version), fang.WithCommit(commit))
+	if err != nil {
+		os.Exit(1)
+	}
+}
+
+// runLegacy is the pre-cobra dispatcher: argv (without the program name)
+// selects a handler that reads os.Args itself. The cobra tree in cli.go ends
+// here, so every command runs the code that always shipped.
+func runLegacy(argv []string) {
+	os.Args = append([]string{os.Args[0]}, argv...)
 
 	// `provider` serves the Secret Service bus on the native store directly —
 	// dispatch before selectStore so a corrupt config or a `secretservice`
@@ -132,7 +109,13 @@ func main() {
 	}
 
 	cmd := os.Args[1]
-	WriteLog("omaseal %s: command %s", version, cmd)
+	// The audit line names the verb as the caller typed it when that is an
+	// old spelling of the same handler (`delete`, `analytics`, `robots`).
+	logName := cmd
+	if sameHandler(invokedVerb, cmd) {
+		logName = invokedVerb
+	}
+	WriteLog("omaseal %s: command %s", version, logName)
 
 	switch cmd {
 	case "version", "--version", "-v":
@@ -238,7 +221,7 @@ func handleSet() {
 		fmt.Fprintf(os.Stderr, "warning: value stored but rotation flag still set: %v\n", err)
 	}
 	WriteLog("set %s/%s", service, account)
-	fmt.Println("ok")
+	ui.Done("ok", fmt.Sprintf("saved %s/%s", service, account))
 }
 
 func handleGet() {
@@ -342,7 +325,7 @@ func handleDel() {
 		os.Exit(1)
 	}
 	WriteLog("del %s/%s", service, account)
-	fmt.Println("ok")
+	ui.Done("ok", fmt.Sprintf("deleted %s/%s", service, account))
 }
 
 func handleList() {
@@ -391,23 +374,23 @@ func handleList() {
 		return
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	if sortMode == "used" || sortMode == "hits" || sortMode == "recent" {
-		fmt.Fprintln(w, "SERVICE\tACCOUNT\tHITS\tLAST ACCESSED\tLABEL")
+		rows := make([][]string, 0, len(items))
 		for _, it := range items {
 			last := "-"
 			if it.LastAccessed != nil {
 				last = it.LastAccessed.Format("2006-01-02 15:04:05")
 			}
-			fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n", sanitizeField(it.Service), sanitizeField(it.Account), it.AccessCount, last, sanitizeField(flagMarker(it)+it.Label))
+			rows = append(rows, []string{sanitizeField(it.Service), sanitizeField(it.Account), strconv.Itoa(it.AccessCount), last, sanitizeField(flagMarker(it) + it.Label)})
 		}
+		ui.Table(os.Stdout, 2, []string{"SERVICE", "ACCOUNT", "HITS", "LAST ACCESSED", "LABEL"}, rows)
 	} else {
-		fmt.Fprintln(w, "SERVICE\tACCOUNT\tLABEL")
+		rows := make([][]string, 0, len(items))
 		for _, it := range items {
-			fmt.Fprintf(w, "%s\t%s\t%s\n", sanitizeField(it.Service), sanitizeField(it.Account), sanitizeField(flagMarker(it)+it.Label))
+			rows = append(rows, []string{sanitizeField(it.Service), sanitizeField(it.Account), sanitizeField(flagMarker(it) + it.Label)})
 		}
+		ui.Table(os.Stdout, 2, []string{"SERVICE", "ACCOUNT", "LABEL"}, rows)
 	}
-	w.Flush()
 }
 
 // flagMarker prefixes the list label of a flagged secret so the alert is
@@ -500,7 +483,7 @@ func handleImport() {
 		os.Exit(1)
 	}
 	WriteLog("import %s", source)
-	fmt.Println("ok")
+	ui.Done("ok", "imported from "+source)
 }
 
 func handleLogs() {
@@ -683,7 +666,7 @@ func handleSelfTest() {
 		printError("selftest ", err)
 		os.Exit(1)
 	}
-	fmt.Println("selftest ok: set/get/delete round-trip passed")
+	ui.Done("selftest ok: set/get/delete round-trip passed", "keyring round-trip passed (set, get, delete)")
 }
 
 // readSecretDeadline reads stdin like readSecret but gives up after d, so

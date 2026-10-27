@@ -9,8 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"text/tabwriter"
 	"unicode"
+
+	"github.com/duketopceo/OmaSeal/engine/ui"
 )
 
 type RulePolicy string
@@ -361,12 +362,11 @@ func handleManifest() {
 			fmt.Println("Run 'omaseal manifest init' to generate one from existing secrets.")
 			return
 		}
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "POLICY\tPATTERN\tDESCRIPTION")
+		rows := make([][]string, 0, len(m.Rules))
 		for _, r := range m.Rules {
-			fmt.Fprintf(w, "%s\t%s\t%s\n", r.Policy, sanitizeField(r.Pattern), sanitizeField(r.Description))
+			rows = append(rows, []string{fmt.Sprint(r.Policy), sanitizeField(r.Pattern), sanitizeField(r.Description)})
 		}
-		w.Flush()
+		ui.Table(os.Stdout, 2, []string{"POLICY", "PATTERN", "DESCRIPTION"}, rows)
 
 	case "init":
 		path, err := manifestDir()

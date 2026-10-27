@@ -10,8 +10,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 	"time"
+
+	"github.com/duketopceo/OmaSeal/engine/ui"
 )
 
 // Every successful secret read is counted: `get`, `reveal`, and `resolve`
@@ -413,13 +414,12 @@ func handleStats() {
 	if len(top) > topN {
 		top = top[:topN]
 	}
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "RANK\tHITS\tSERVICE\tACCOUNT\tLAST ACCESSED")
+	rows := make([][]string, 0, len(top))
 	for i, stat := range top {
 		last := stat.LastAccessed.Format("2006-01-02 15:04:05")
-		fmt.Fprintf(w, "#%d\t%d\t%s\t%s\t%s\n", i+1, stat.Count, sanitizeField(stat.Service), sanitizeField(stat.Account), last)
+		rows = append(rows, []string{fmt.Sprintf("#%d", i+1), strconv.Itoa(stat.Count), sanitizeField(stat.Service), sanitizeField(stat.Account), last})
 	}
-	w.Flush()
+	ui.Table(os.Stdout, 3, []string{"RANK", "HITS", "SERVICE", "ACCOUNT", "LAST ACCESSED"}, rows)
 	if len(report.Stats) > topN {
 		fmt.Printf("\n… and %d more (use --json for the full list)\n", len(report.Stats)-topN)
 	}

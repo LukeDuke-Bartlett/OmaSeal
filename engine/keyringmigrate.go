@@ -426,7 +426,7 @@ func runMigrate(args []string) {
 		if deleteOld {
 			fmt.Fprintln(os.Stderr, "After verifying, the old plaintext keyring will be deleted.")
 		}
-		if !confirm("Proceed? [Y/n] ") {
+		if !confirm("Proceed?") {
 			fmt.Fprintln(os.Stderr, "aborted")
 			return
 		}

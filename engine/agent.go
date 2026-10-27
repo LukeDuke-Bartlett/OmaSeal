@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/duketopceo/OmaSeal/engine/ui"
 )
 
 const (
@@ -298,6 +300,10 @@ func modeChangeWeakens(p AgentPolicy, mode string, ungated bool) bool {
 	return false
 }
 
+// modeChangeConfirmTimeout bounds how long `agent mode` waits for the user to
+// answer a loosening-confirm. A variable so tests can shorten it.
+var modeChangeConfirmTimeout = 60 * time.Second
+
 // gateModeChange runs the presence chain for weakening mode transitions.
 // No mechanism = refuse: the earlier warn-and-allow made the gate an env
 // check, since a caller can suppress every prompter via its own environment
@@ -312,7 +318,27 @@ func gateModeChange(ctx context.Context, p AgentPolicy, mode string, ungated boo
 	if ungated {
 		reason += " --ungated"
 	}
-	switch err := runPresenceChain(ctx, reason); {
+
+	// The confirm is a dialog on the user's desktop. Launched somewhere nobody
+	// can see it (an SSH session on a machine whose display variables are set,
+	// a service), it used to wait out the full GUI timeout in silence. Bound
+	// the wait and say what is being waited for.
+	cctx, cancel := context.WithTimeout(ctx, modeChangeConfirmTimeout)
+	defer cancel()
+	// Say what is being waited for only once the wait is noticeable, so an
+	// instant refusal (no mechanism at all) stays a single clear error.
+	notice := time.AfterFunc(2*time.Second, func() {
+		fmt.Fprintf(os.Stderr, "Waiting up to %s for you to confirm \"%s\" (fingerprint, or a dialog on your desktop)…\n",
+			modeChangeConfirmTimeout.Round(time.Second), reason)
+	})
+	err := runPresenceChain(cctx, reason)
+	notice.Stop()
+	if errors.Is(cctx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+		WriteLog("presence: no answer to %q within %s — refused", reason, modeChangeConfirmTimeout)
+		return fmt.Errorf("%w: nobody confirmed within %s.\n  The confirmation appears on the desktop session; run this from a terminal on that desktop, or answer the dialog in time.\n  Headless machines: edit %s directly (deliberate, filesystem-level opt-out)",
+			errPresenceDenied, modeChangeConfirmTimeout.Round(time.Second), agentPolicyPath())
+	}
+	switch {
 	case err == nil:
 		return nil
 	case errors.Is(err, errNoPresenceMechanism):
@@ -621,7 +647,7 @@ func handleAgent() {
 			fmt.Fprintln(os.Stderr, "warning: agent unlock will skip user-presence confirmation when no mechanism is available — any local process can unlock the agent session.")
 		}
 		WriteLog("agent mode set to %s (%dm)", mode, mins)
-		fmt.Printf("Agent mode set to %s.\n", mode)
+		ui.Done(fmt.Sprintf("Agent mode set to %s.", mode), fmt.Sprintf("agent mode is now %s", mode))
 	case "unlock":
 		if err := UnlockAgent(hasFlag(os.Args, "--passphrase-stdin")); err != nil {
 			printError("", err)
