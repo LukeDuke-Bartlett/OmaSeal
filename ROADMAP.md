@@ -11,7 +11,7 @@ Design direction: [DESIGN.md](DESIGN.md). Written directly rather than via `ce-p
 | U3 Install docs versus releases: checked, `v0.4.0` release exists and is Latest, so the pin is correct | Now | verified, no action | easy | none | none |
 | U4 First-party Omarchy integration (`omarchy-secrets-*`, panel, menu) | Next | open | hard | depends on `omacom/omarchy-mac` maintainers accepting a PR | ship commands + menu only (the existing phased fallback) |
 | U5 BrowserOS resolves secret at request time | Next | deferred | medium | needs an `omarchy-browser` checkout | document the `omaseal run` pattern |
-| U6 Panel component extraction | Later | open | medium | `Panel.qml` is 1,220 lines; host relative-import rules unverified, no way to run QML outside Omarchy | split only the add form and row delegate |
+| U6 Panel component extraction | Later | done (#51) | medium | `Panel.qml` was 1,220 lines; now 501 lines plus sibling files (`PanelJobs.qml`, `PanelModel.qml`, `AddEditForm.qml`, `SecretsView.qml`, `AgentSection.qml`) | none left |
 | U7 Different-uid policy daemon (confinement) | Later | research | hard | needs setuid or polkit brokering; large attack-surface change | state the same-uid limits plainly (already in README/ROADMAP) |
 | U8 Stable v1.0 API | Later | open | medium | needs third-party consumers | freeze `service/account` and IPC only |
 
@@ -98,6 +98,15 @@ Simplification found: the engine carries two stores (Secret Service and native) 
   200-rune cap with truncation marker on all foreign metadata output
 - [x] `omaseal doctor` backend line — reports configured backend,
   native init state, and session liveness
+- [x] Panel extraction (#51) — the secrets panel is split into sibling QML
+  components, and copying a secret no longer routes it through QML
+- [x] Secret Service provider daemon (#50) — `omaseal provider serve` /
+  `provider enable`, so `gh`, VS Code, docker credential helpers and
+  `secret-tool` store into the native vault with per-caller audit
+- [x] `ask-save` (#53) — a masked user dialog collects a secret for an agent
+  write (`omaseal ask-save`, MCP `omaseal_ask_save`)
+- [x] setec design-read (#52, #54) — notes on what the helper daemon should
+  borrow, in `docs/decisions/setec-design-notes.md`
 
 ## v0.6.0 — Marketplace stable
 
@@ -131,9 +140,8 @@ Simplification found: the engine carries two stores (Secret Service and native) 
   x86 once the omarchy-mac surface lands — the code is platform-agnostic).
 - Stable API, documented `service/account` conventions, and third-party
   plugin adoption.
-- Panel component extraction (the single-file panel has outgrown its
-  structure) and first-run `manifest init` prompt.
-- **Secret Service provider daemon** (in flight): `omaseal provider serve`
+- First-run `manifest init` prompt. (Panel component extraction shipped in #51.)
+- **Secret Service provider daemon** (shipped in #50; confinement follow-ups remain): `omaseal provider serve`
   claims `org.freedesktop.secrets` on the session bus and answers the full
   libsecret surface — `gh`, VS Code, copilot, docker credential helpers, and
   `secret-tool` store straight into the native vault with per-caller
