@@ -140,7 +140,7 @@ See [`docs/onboarding.md`](docs/onboarding.md) for wiring OmaSeal into agents an
 
 | Group | Commands |
 | --- | --- |
-| Secrets | `set` (`--ask` for a popup), `get` (`--reveal` gated, `--resolve` via 1Password/Bitwarden), `ls`, `rm`, `run`, `sudo` |
+| Secrets | `set` (`--ask` for a popup), `get` (`--reveal` gated, `--resolve` via 1Password/Bitwarden), `ls`, `rm`, `run`, `sudo`, `flag`/`unflag` (rotation marks) |
 | Agents | `agent mode\|unlock\|lock\|status\|keepalive\|primary\|defaults`, `mcp serve\|install\|status`, `policy show\|init\|check\|path\|audit\|apply` |
 | Health | `doctor` (`doctor setup\|selftest\|ping`), `stats`, `logs` (`verify`, `seal`) |
 | Setup | `import 1password\|bitwarden\|secretservice`, `keyring status\|migrate`, `provider serve\|status\|enable\|disable` |
@@ -167,16 +167,16 @@ omaseal set openrouter default
 
 # Popup store (for agents: a masked OS dialog collects the value — the
 # caller only learns whether it saved, never the secret itself)
-omaseal ask-save openrouter default
+omaseal set --ask openrouter default
 
 # Retrieve (fast, local-only)
 omaseal get openrouter default
 
 # Retrieve behind a user-presence gate (fingerprint, else GUI confirm)
-omaseal reveal openrouter default
+omaseal get --reveal openrouter default
 
 # Resolve: local → 1Password → Bitwarden → prompt, with local caching
-omaseal resolve openrouter default
+omaseal get --resolve openrouter default
 
 # Launch a command with secrets injected into its env (no values in config)
 omaseal run -e GITHUB_PERSONAL_ACCESS_TOKEN=github/token -- npx -y @modelcontextprotocol/server-github
@@ -185,7 +185,7 @@ omaseal run -e GITHUB_PERSONAL_ACCESS_TOKEN=github/token -- npx -y @modelcontext
 omaseal sudo -- apt update
 
 # Delete
-omaseal del openrouter default
+omaseal rm openrouter default
 
 # Flag a secret for rotation (leaked into a log/file/transcript). Reads keep
 # working but warn; `set` of a new value clears the flag.
@@ -193,8 +193,8 @@ omaseal flag openrouter default "token printed in agent transcript"
 omaseal unflag openrouter default
 
 # List metadata (no secrets)
-omaseal list
-omaseal list openrouter --json
+omaseal ls
+omaseal ls openrouter --json
 
 # Import from another vault
 omaseal import 1password pace-dev
@@ -205,7 +205,7 @@ omaseal keyring status
 omaseal keyring migrate [--dry-run] [--delete-old] [-y]
 
 # Copy every Secret Service item into the native store (idempotent, source untouched)
-omaseal migrate [--dry-run] [-y]
+omaseal import secretservice [--dry-run] [-y]
 
 # Serve org.freedesktop.secrets yourself — OmaSeal becomes the system keyring
 # (every libsecret client: gh, VS Code, copilot, docker credential helpers)
@@ -219,7 +219,7 @@ omaseal stats [--json]
 
 # Everywhere <service> <account> works, an omaseal:// reference works too
 omaseal get omaseal://openrouter/default
-omaseal resolve omaseal://browseros/openrouter-work/apiKey
+omaseal get --resolve omaseal://browseros/openrouter-work/apiKey
 
 # IPC for other plugins
 omaseal ipc resolve '{"service":"openrouter","account":"default"}'
@@ -232,7 +232,7 @@ omaseal logs seal ~/seals.log      # anchor today's head somewhere off the state
 omaseal logs verify --anchor ~/seals.log   # prove sealed history is still intact
 
 # MCP stdio server for agents
-omaseal mcp
+omaseal mcp serve
 ```
 
 ## Quickshell panel
