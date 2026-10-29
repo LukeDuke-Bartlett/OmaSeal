@@ -83,7 +83,16 @@ func askSave(ctx context.Context, service, account, desc string) error {
 	}
 	// Store errors (locked, keyring down) already carry typed codes. The
 	// storeSet seam is the same one omaseal_set uses — tests mock it.
-	return storeSet(service, account, secret)
+	if err := storeSet(service, account, secret); err != nil {
+		return err
+	}
+	// A user-typed replacement completes the rotation, same as `set` —
+	// clear a stale flag so read surfaces stop warning about a credential
+	// that no longer exists. Best-effort: the save already succeeded.
+	if err := UnflagRotation(service, account); err != nil {
+		WriteLog("ask-save %s/%s: flag clear failed: %v", service, account, err)
+	}
+	return nil
 }
 
 // handleAskSave is the CLI surface for askSave — agents without MCP run

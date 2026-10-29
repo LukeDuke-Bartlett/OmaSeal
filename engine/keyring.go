@@ -42,6 +42,11 @@ type Item struct {
 	// service/account namespace but written by other tools report false so
 	// consumers can distinguish provenance before mutating them.
 	Owned bool `json:"owned"`
+	// RotationFlagged marks secrets a caller flagged for rotation via
+	// `omaseal flag`; RotationReason carries the optional note. Read
+	// surfaces alert on these — the value itself is still served.
+	RotationFlagged bool   `json:"rotation_flagged,omitempty"`
+	RotationReason  string `json:"rotation_reason,omitempty"`
 }
 
 // keyringError wraps keyring failures with actionable context.

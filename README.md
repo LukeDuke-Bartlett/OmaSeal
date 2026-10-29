@@ -160,6 +160,11 @@ omaseal sudo -- apt update
 # Delete
 omaseal del openrouter default
 
+# Flag a secret for rotation (leaked into a log/file/transcript). Reads keep
+# working but warn; `set` of a new value clears the flag.
+omaseal flag openrouter default "token printed in agent transcript"
+omaseal unflag openrouter default
+
 # List metadata (no secrets)
 omaseal list
 omaseal list openrouter --json

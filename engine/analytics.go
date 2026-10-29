@@ -271,6 +271,25 @@ func EnrichItemsWithStats(items []Item, stats map[string]AccessStat) []Item {
 	return items
 }
 
+// EnrichItemsWithFlags decorates Item structs with rotation-flag state so
+// every list surface (CLI, IPC, MCP) carries the alert without each caller
+// re-implementing the lookup. An unreadable flags file degrades to no
+// markers — a flag-store hiccup must not break listing.
+func EnrichItemsWithFlags(items []Item) []Item {
+	flags, err := loadFlags()
+	if err != nil {
+		WriteLog("list: flags load failed, rotation markers empty: %v", err)
+		return items
+	}
+	for i := range items {
+		if f, ok := flags[statKey(items[i].Service, items[i].Account)]; ok {
+			items[i].RotationFlagged = true
+			items[i].RotationReason = f.Reason
+		}
+	}
+	return items
+}
+
 // SortItemsByUsage sorts secret items descending by their access count.
 // The QML panel mirrors this comparator for its "used" sort mode — keep
 // the two orderings in sync.
@@ -333,6 +352,7 @@ func listWithUsageStatus(service, sortMode string) ([]Item, bool, error) {
 	} else if stats != nil {
 		items = EnrichItemsWithStats(items, stats)
 	}
+	items = EnrichItemsWithFlags(items)
 	switch sortMode {
 	case "used", "hits":
 		SortItemsByUsage(items)
